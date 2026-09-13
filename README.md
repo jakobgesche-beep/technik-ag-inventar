@@ -59,13 +59,13 @@ zur Verfügung steht.
 ### Codes
 
 Jede Nummer wird als **QR-Code** gedruckt (Bibliothek `qrcode-generator`) und
-per Kamera mit `qr-scanner` erkannt — beide laufen als reines JavaScript im
-Browser (Canvas-Dekodierung über einen Web Worker), nicht über die native
-`BarcodeDetector`-API. Das ist bewusst so gewählt, weil Safari auf dem iPhone
-`BarcodeDetector` nicht unterstützt; mit QR-Codes funktioniert die
-Kamera-Erkennung zuverlässig auch auf iOS. Fällt die Kamera-Erkennung trotzdem
-aus (kein Kamerazugriff erlaubt o. Ä.), kann die Nummer jederzeit manuell
-eingetippt werden.
+per Kamera mit `jsQR` erkannt (eigene `getUserMedia` + `<video>` + Canvas-
+Logik, kein Framework drumherum) — nicht über die native `BarcodeDetector`-
+API. Das ist bewusst so gewählt, weil Safari auf dem iPhone `BarcodeDetector`
+nicht unterstützt; mit QR-Codes und jsQR funktioniert die Kamera-Erkennung
+zuverlässig auch auf iOS. Fällt die Kamera-Erkennung trotzdem aus (kein
+Kamerazugriff erlaubt o. Ä.), kann die Nummer jederzeit manuell eingetippt
+werden.
 
 ## Setup
 

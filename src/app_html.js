@@ -11,7 +11,7 @@ export function getAppHtml() {
 <link rel="icon" href="/icon-192.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/qr-scanner@1.4.2/qr-scanner.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/dist/qrcode.min.js"></script>
 <style>
 ${CSS}
@@ -305,48 +305,76 @@ tabbar.addEventListener('click', (e) => {
 // ================= SCANNER =================
 // runScanner/buildScanner sind die gemeinsame Kamera-Logik, wiederverwendet vom
 // Scan-Tab, dem Kisteninhalt-Scanner und dem Event-Packscanner.
-// Nutzt die qr-scanner-Bibliothek (Canvas-Dekodierung via Web Worker) statt der
-// nativen BarcodeDetector-API, da Safari auf dem iPhone BarcodeDetector nicht
-// unterstützt (die Kamera ging dort vorher gar nicht erst an).
+// Eigene, transparente Implementierung (getUserMedia + <video> + Canvas + jsQR)
+// statt einer fertigen Scanner-Bibliothek, damit die Live-Vorschau garantiert
+// sichtbar ist und wir volle Kontrolle über das <video>-Element haben. Native
+// BarcodeDetector fällt weg, weil Safari auf dem iPhone das nicht unterstützt.
 let activeQrScanner = null;
 
 function stopScanner(){
-  if(activeQrScanner){
-    try { activeQrScanner.stop(); activeQrScanner.destroy(); } catch(e){}
-  }
+  if(activeQrScanner){ try { activeQrScanner.stop(); } catch(e){} }
   activeQrScanner = null;
 }
 
 function runScanner(box, onDetect){
   stopScanner();
 
-  if(typeof QrScanner === 'undefined'){
-    box.innerHTML = '<div class="scan-placeholder">Scanner-Bibliothek konnte nicht geladen werden.<br/>Bitte Nummer manuell eingeben.</div>';
+  if(typeof jsQR === 'undefined' || !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)){
+    box.innerHTML = '<div class="scan-placeholder">Kamera-Scan wird von diesem Browser nicht unterstützt.<br/>Bitte Nummer manuell eingeben.</div>';
     return;
   }
 
   box.innerHTML = '';
   const video = document.createElement('video');
   video.setAttribute('playsinline','');
+  video.setAttribute('autoplay','');
+  video.setAttribute('muted','');
   video.muted = true;
   box.appendChild(video);
   box.appendChild(el('<div class="scan-frame"></div>'));
 
-  const scanner = new QrScanner(video, (result) => {
-    const val = ((result && result.data) || '').trim().toUpperCase();
-    if(val){ stopScanner(); onDetect(val); }
-  }, {
-    preferredCamera: 'environment',
-    highlightScanRegion: false,
-    highlightCodeOutline: false,
-    maxScansPerSecond: 5,
-    returnDetailedScanResult: true,
-  });
-  activeQrScanner = scanner;
-  scanner.start().catch((e) => {
-    box.innerHTML = '<div class="scan-placeholder">Kein Kamerazugriff (' + e.message + ').<br/>Bitte Nummer manuell eingeben.</div>';
-    if(activeQrScanner === scanner) activeQrScanner = null;
-  });
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  let stream = null, raf = null, stopped = false, lastScan = 0;
+
+  activeQrScanner = {
+    stop(){
+      stopped = true;
+      if(raf) cancelAnimationFrame(raf);
+      if(stream) stream.getTracks().forEach(t => t.stop());
+    }
+  };
+
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    .then((s) => {
+      if(stopped){ s.getTracks().forEach(t => t.stop()); return; }
+      stream = s;
+      video.srcObject = s;
+      return video.play();
+    })
+    .then(() => {
+      if(stopped) return;
+      const tick = (ts) => {
+        if(stopped) return;
+        if(video.readyState >= video.HAVE_ENOUGH_DATA && video.videoWidth && (!lastScan || ts - lastScan > 150)){
+          lastScan = ts;
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQR(imageData.data, imageData.width, imageData.height);
+          if(code && code.data){
+            const val = code.data.trim().toUpperCase();
+            if(val){ stopScanner(); onDetect(val); return; }
+          }
+        }
+        raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+    })
+    .catch((e) => {
+      box.innerHTML = '<div class="scan-placeholder">Kein Kamerazugriff (' + (e && e.message) + ').<br/>Bitte Nummer manuell eingeben.</div>';
+    });
 }
 
 function buildScanner(onDetect){
