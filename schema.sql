@@ -15,9 +15,9 @@ CREATE TABLE IF NOT EXISTS counters (
 );
 
 INSERT OR IGNORE INTO counters (prefix, next_value) VALUES
-  ('MIK', 1), ('STR', 1), ('BXK', 1), ('INS', 1),
+  ('MKB', 1), ('STR', 1), ('BXK', 1), ('INS', 1),
   ('PLT', 1), ('LMP', 1), ('BOX', 1), ('FNK', 1), ('GER', 1),
-  ('KIS', 1), ('MIC', 1), ('MST', 1);
+  ('KIS', 1), ('MIK', 1), ('MST', 1);
 
 CREATE TABLE IF NOT EXISTS items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

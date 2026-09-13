@@ -12,7 +12,6 @@ export function getAppHtml() {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.23.0/umd/index.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 <style>
 ${CSS}
 </style>
@@ -217,21 +216,12 @@ h1,h2,h3,.headline{font-family:var(--font-head);letter-spacing:-0.01em;}
   text-align:center;color:var(--muted);padding:40px 20px;font-size:14px;
 }
 
-.label-sheet{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
-.label-card{
-  border:1px dashed var(--accent-dim);border-radius:var(--radius-label);padding:10px;
-  display:flex;flex-direction:column;align-items:center;background:var(--panel);
+.copy-row{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:12px 4px;border-bottom:1px solid var(--line);
 }
-.label-card svg{max-width:100%;}
-.label-card .cat{font-size:10.5px;color:var(--muted);margin-top:4px;text-align:center;}
-
-@media print{
-  body *{visibility:hidden;}
-  #print-area, #print-area *{visibility:visible;}
-  #print-area{position:absolute;top:0;left:0;width:100%;padding:0;margin:0;}
-  .label-card{border:1px dashed #999;color:#000;background:#fff;}
-  .label-card .cat{color:#333;}
-}
+.copy-row:last-child{border-bottom:none;}
+.copy-row .copy-text{font-family:var(--font-mono);font-weight:600;font-size:15px;letter-spacing:0.02em;}
 
 .toast{
   position:fixed;left:50%;bottom:90px;transform:translateX(-50%);
@@ -397,25 +387,30 @@ views.scan = async function(){
 };
 
 // ================= LABELS =================
-// renderBarcodeInto zeichnet einen Code128-Barcode in ein bereits im DOM
-// befindliches <svg>-Element (JsBarcode braucht das Element im Dokument, daher
-// der setTimeout(...,0) direkt nach dem Einfügen ins DOM).
-function renderBarcodeInto(svgEl, text){
-  setTimeout(() => {
+// Kein Barcode/QR-Bild mehr von der App selbst — der reine Code wird als Text
+// gezeigt und kann per Klick kopiert werden, z. B. zum Einfügen in eine externe
+// Label-Drucker-App. Gescannt wird trotzdem: die Kamera erkennt, was auch immer
+// auf dem physisch aufgeklebten Label steht (Barcode/QR/etc., via ZXing).
+function copyRow(text){
+  const row = el('<div class="copy-row"><span class="copy-text"></span><button type="button" class="btn ghost" style="width:auto;padding:6px 12px;font-size:12.5px;">Kopieren</button></div>');
+  row.querySelector('.copy-text').textContent = text;
+  const btn = row.querySelector('button');
+  btn.addEventListener('click', async () => {
     try {
-      JsBarcode(svgEl, text, {
-        format: 'CODE128', displayValue: true, fontSize: 14, height: 36, margin: 4,
-        background: 'transparent', lineColor: getComputedStyle(document.body).getPropertyValue('--text') || '#EDEAE2',
-      });
-    } catch(e){}
-  }, 0);
+      await navigator.clipboard.writeText(text);
+      toast('Kopiert: ' + text);
+    } catch(e){ toast('Kopieren nicht möglich.', true); }
+  });
+  return row;
 }
 
-// Text, der unter dem Code stehen soll: bei Geräten Marke+Modell (sobald erfasst),
-// sonst die Kategorie-Bezeichnung — damit man das Teil auch ohne Scan erkennt.
+// Beschreibung, die neben dem Code steht: bei Geräten Marke+Modell (sobald
+// erfasst), bei Kabeln Kabeltyp + Länge — sonst die Kategorie-Bezeichnung,
+// damit man das Teil auch ohne Scan erkennt.
 function labelText(item, info){
   if(info.kind === 'kabel'){
-    const parts = [info.cat.label, item.cable && item.cable.cable_type].filter(Boolean);
+    const c = item.cable || {};
+    const parts = [info.cat.label, c.cable_type, c.length_m ? c.length_m + 'm' : null].filter(Boolean);
     return parts.join(' · ');
   }
   const d = item.device || {};
@@ -543,15 +538,11 @@ async function renderItemDetail(item){
   dangerRow.appendChild(delBtn);
   app.appendChild(dangerRow);
 
-  app.appendChild(el('<h3 class="section-title" style="font-size:16px;margin-top:22px;">Label</h3>'));
-  const labelSheet = el('<div class="label-sheet" id="print-area" style="grid-template-columns:1fr;max-width:220px;"></div>');
-  const labelCard = el('<div class="label-card"><svg class="bc"></svg><div class="cat">' + esc(labelText(item, info)) + '</div></div>');
-  labelSheet.appendChild(labelCard);
-  renderBarcodeInto(labelCard.querySelector('.bc'), item.number);
-  app.appendChild(labelSheet);
-  const printItemBtn = el('<button class="btn secondary" style="margin-top:10px;">Label drucken</button>');
-  printItemBtn.addEventListener('click', () => window.print());
-  app.appendChild(printItemBtn);
+  app.appendChild(el('<h3 class="section-title" style="font-size:16px;margin-top:22px;">Code</h3>'));
+  const codeCard = el('<div class="card"></div>');
+  codeCard.appendChild(copyRow(item.number));
+  codeCard.appendChild(copyRow(labelText(item, info)));
+  app.appendChild(codeCard);
 
   if(info.kind === 'geraet' && info.typeKey === 'kiste'){
     app.appendChild(el('<h3 class="section-title" style="font-size:16px;margin-top:22px;">Inhalt</h3>'));
@@ -689,7 +680,7 @@ views.neu = async function(){
   const cfg = await loadConfig();
   app.innerHTML = '';
   app.appendChild(el('<h2 class="section-title">Neue Nummern</h2>'));
-  app.appendChild(el('<p class="hint">Kategorie wählen, Anzahl festlegen, Nummern reservieren und Labels drucken. Danach Labels aufkleben und über „Scannen" die Daten erfassen.</p>'));
+  app.appendChild(el('<p class="hint">Kategorie wählen, Anzahl festlegen, Nummern reservieren. Codes kopieren und in eurer Label-Drucker-App aufs Etikett setzen, aufkleben, dann über „Scannen" die Daten erfassen.</p>'));
 
   let itemType = 'kabel';
   const typeChips = el('<div class="chip-group" style="margin-bottom:16px;"></div>');
@@ -734,26 +725,19 @@ views.neu = async function(){
     const qty = parseInt(qtyField.querySelector('#qty').value, 10) || 1;
     try {
       const res = await api('/allocate', { method:'POST', body: JSON.stringify({ prefix: selectedPrefix, item_type: itemType, count: qty }) });
-      renderLabelSheet(resultWrap, res.numbers, selectedPrefix, cfg);
+      renderCodeList(resultWrap, res.numbers, selectedPrefix, cfg);
     } catch(e){ toast(e.message, true); }
   });
 };
 
-function renderLabelSheet(container, numbers, prefix, cfg){
+function renderCodeList(container, numbers, prefix, cfg){
   const info = Object.values(cfg.cableCategories).concat(Object.values(cfg.deviceTypes)).find(v => v.prefix === prefix);
   container.innerHTML = '';
-  container.appendChild(el('<h3 class="section-title" style="font-size:16px;">' + numbers.length + ' Nummer(n) reserviert</h3>'));
-  const printBtn = el('<button class="btn secondary" style="margin-bottom:14px;">Labels drucken</button>');
-  printBtn.addEventListener('click', () => window.print());
-  container.appendChild(printBtn);
+  container.appendChild(el('<h3 class="section-title" style="font-size:16px;">' + numbers.length + ' Nummer(n) reserviert' + (info ? ' — ' + esc(info.label) : '') + '</h3>'));
 
-  const sheet = el('<div class="label-sheet" id="print-area"></div>');
-  numbers.forEach(num => {
-    const card = el('<div class="label-card"><svg class="bc"></svg><div class="cat">' + esc(info ? info.label : '') + '</div></div>');
-    sheet.appendChild(card);
-    renderBarcodeInto(card.querySelector('.bc'), num);
-  });
-  container.appendChild(sheet);
+  const listCard = el('<div class="card" style="padding:4px 12px;"></div>');
+  numbers.forEach(num => listCard.appendChild(copyRow(num)));
+  container.appendChild(listCard);
 
   const goScan = el('<button class="btn ghost" style="margin-top:14px;">Zum Scanner</button>');
   goScan.addEventListener('click', () => goTo('scan'));

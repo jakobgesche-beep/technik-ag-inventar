@@ -2,7 +2,7 @@
 // Das ist die "single source of truth" - Frontend holt sich das über /api/config.
 
 export const CABLE_CATEGORIES = {
-  mikrofon:   { prefix: "MIK", label: "Mikrofonkabel",     connectors: ["XLR male", "XLR female", "Klinke 6.3mm", "Klinke 3.5mm", "Mini-XLR"], defaultBereich: "ton" },
+  mikrofon:   { prefix: "MKB", label: "Mikrofonkabel",     connectors: ["XLR male", "XLR female", "Klinke 6.3mm", "Klinke 3.5mm", "Mini-XLR"], defaultBereich: "ton" },
   strom:      { prefix: "STR", label: "Strom",              connectors: ["Schuko", "Kaltgeräte C13", "Kaltgeräte C14", "PowerCon", "Verteiler/Steckerleiste"], defaultBereich: "allgemein" },
   boxen:      { prefix: "BXK", label: "Boxenkabel",         connectors: ["Speakon NL2", "Speakon NL4", "Klinke 6.3mm", "Bananenstecker"], defaultBereich: "ton" },
   instrument: { prefix: "INS", label: "Instrumentenkabel",  connectors: ["Klinke 6.3mm mono", "Klinke 6.3mm stereo", "Cinch/RCA", "MIDI"], defaultBereich: "ton" },
@@ -14,7 +14,7 @@ export const DEVICE_TYPES = {
   pult:             { prefix: "PLT", label: "Pult",               hasActivePassive: false, hasRack: false, bereich: { mode: "choice", options: ["licht", "ton"] } },
   lampe:            { prefix: "LMP", label: "Lampe",               hasActivePassive: false, hasRack: false, bereich: { mode: "fixed", value: "licht" } },
   box:              { prefix: "BOX", label: "Box (Lautsprecher)",  hasActivePassive: true,  hasRack: false, bereich: { mode: "fixed", value: "ton" } },
-  mikrofon:         { prefix: "MIC", label: "Mikrofon",             hasActivePassive: false, hasRack: false, bereich: { mode: "fixed", value: "ton" } },
+  mikrofon:         { prefix: "MIK", label: "Mikrofon",             hasActivePassive: false, hasRack: false, bereich: { mode: "fixed", value: "ton" } },
   mikrofonstaender: { prefix: "MST", label: "Mikroständer",         hasActivePassive: false, hasRack: false, bereich: { mode: "fixed", value: "ton" } },
   funkmikro:        { prefix: "FNK", label: "Funkmikrofon",         hasActivePassive: false, hasRack: true,  bereich: { mode: "fixed", value: "ton" } },
   kiste:            { prefix: "KIS", label: "Kiste",                hasActivePassive: false, hasRack: false, bereich: { mode: "none" }, isContainer: true },
