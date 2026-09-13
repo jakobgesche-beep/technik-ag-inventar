@@ -325,6 +325,7 @@ function runScanner(box, onDetect){
 
   const reader = new ZXing.BrowserMultiFormatReader();
   let stream = null, raf = null, stopped = false, lastScan = 0;
+  let lastCandidate = null, candidateCount = 0;
 
   activeScanner = {
     stop(){
@@ -334,7 +335,24 @@ function runScanner(box, onDetect){
     }
   };
 
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+  // Mehrere Constraint-Varianten durchprobieren: höhere Auflösung + Dauer-Autofokus
+  // helfen bei kleinen/nahen Codes, aber nicht jeder Browser/jedes Gerät akzeptiert
+  // alle Optionen — deshalb mit Fallback auf einfachere Varianten.
+  async function openCameraStream(){
+    const attempts = [
+      { video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 }, advanced: [{ focusMode: 'continuous' }] } },
+      { video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } },
+      { video: { facingMode: 'environment' } },
+    ];
+    let lastErr;
+    for(const c of attempts){
+      try { return await navigator.mediaDevices.getUserMedia(c); }
+      catch(e){ lastErr = e; }
+    }
+    throw lastErr;
+  }
+
+  openCameraStream()
     .then((s) => {
       if(stopped){ s.getTracks().forEach(t => t.stop()); return; }
       stream = s;
@@ -350,7 +368,13 @@ function runScanner(box, onDetect){
           try {
             const result = reader.decode(video);
             const val = (result.getText() || '').trim().toUpperCase();
-            if(val){ stopScanner(); onDetect(val); return; }
+            if(val){
+              if(val === lastCandidate) candidateCount++;
+              else { lastCandidate = val; candidateCount = 1; }
+              // Erst nach zwei übereinstimmenden Lesungen in Folge übernehmen —
+              // filtert einmalige Fehllesungen bei kleinen/unscharfen Codes raus.
+              if(candidateCount >= 2){ stopScanner(); onDetect(val); return; }
+            }
           } catch(e){ /* kein Code in diesem Frame erkannt - normal, weiter versuchen */ }
         }
         raf = requestAnimationFrame(tick);
