@@ -694,23 +694,47 @@ views.neu = async function(){
   const catWrap = el('<div class="chip-group" style="margin-bottom:16px;"></div>');
   app.appendChild(catWrap);
   let selectedPrefix = null;
+  let selectedCatKey = null;
+
+  const detailsWrap = el('<div></div>');
+
+  function renderDetailFields(){
+    detailsWrap.innerHTML = '';
+    if(itemType !== 'kabel' || !selectedCatKey) return;
+    const cat = cfg.cableCategories[selectedCatKey];
+    const card = el('<div class="card"></div>');
+    card.appendChild(el('<p class="hint" style="margin-bottom:12px;">Details gleich hier angeben (gelten für alle reservierten Nummern dieser Runde) — dann steht z. B. die Länge direkt in der kopierbaren Beschreibung.</p>'));
+    card.appendChild(fieldChips('Bereich', 'bereich', cat.defaultBereich, ['licht','ton','allgemein'], cfg.bereichLabels));
+    card.appendChild(fieldSelectWithOther('Kabeltyp', 'cable_type', null, ['XLR-Kabel','Klinke-Kabel','Speakon-Kabel','Cinch-Kabel','Verlängerung','Sonstiges']));
+    const row = el('<div class="row2"></div>');
+    row.appendChild(fieldSelect('Stecker A', 'connector_a', null, cat.connectors));
+    row.appendChild(fieldSelect('Stecker B', 'connector_b', null, cat.connectors));
+    card.appendChild(row);
+    card.appendChild(fieldNumber('Länge (m)', 'length_m', null));
+    detailsWrap.appendChild(card);
+  }
 
   function renderCatChips(){
     catWrap.innerHTML = '';
     selectedPrefix = null;
+    selectedCatKey = null;
     const source = itemType === 'kabel' ? cfg.cableCategories : cfg.deviceTypes;
-    Object.values(source).forEach((v, idx) => {
+    Object.entries(source).forEach(([key, v], idx) => {
       const chip = el('<button type="button" class="chip">' + v.label + '</button>');
       chip.addEventListener('click', () => {
         [...catWrap.children].forEach(c=>c.classList.remove('active'));
         chip.classList.add('active');
         selectedPrefix = v.prefix;
+        selectedCatKey = key;
+        renderDetailFields();
       });
       catWrap.appendChild(chip);
-      if(idx===0){ chip.classList.add('active'); selectedPrefix = v.prefix; }
+      if(idx===0){ chip.classList.add('active'); selectedPrefix = v.prefix; selectedCatKey = key; }
     });
+    renderDetailFields();
   }
   renderCatChips();
+  app.appendChild(detailsWrap);
 
   const qtyField = el('<div class="field"><label>Anzahl Nummern</label><input type="number" id="qty" value="1" min="1" max="50"></div>');
   app.appendChild(qtyField);
@@ -725,15 +749,25 @@ views.neu = async function(){
     const qty = parseInt(qtyField.querySelector('#qty').value, 10) || 1;
     try {
       const res = await api('/allocate', { method:'POST', body: JSON.stringify({ prefix: selectedPrefix, item_type: itemType, count: qty }) });
-      renderCodeList(resultWrap, res.numbers, selectedPrefix, cfg);
+      let details = null;
+      if(itemType === 'kabel' && detailsWrap.firstChild){
+        details = collectFormValues(detailsWrap.firstChild);
+        await Promise.all(res.numbers.map(num => api('/items/' + encodeURIComponent(num), { method:'PATCH', body: JSON.stringify(details) })));
+      }
+      renderCodeList(resultWrap, res.numbers, selectedPrefix, cfg, details);
     } catch(e){ toast(e.message, true); }
   });
 };
 
-function renderCodeList(container, numbers, prefix, cfg){
+function renderCodeList(container, numbers, prefix, cfg, details){
   const info = Object.values(cfg.cableCategories).concat(Object.values(cfg.deviceTypes)).find(v => v.prefix === prefix);
   container.innerHTML = '';
   container.appendChild(el('<h3 class="section-title" style="font-size:16px;">' + numbers.length + ' Nummer(n) reserviert' + (info ? ' — ' + esc(info.label) : '') + '</h3>'));
+
+  if(details){
+    const descParts = [info ? info.label : null, details.cable_type, details.length_m ? details.length_m + 'm' : null].filter(Boolean);
+    if(descParts.length) container.appendChild(copyRow(descParts.join(' · ')));
+  }
 
   const listCard = el('<div class="card" style="padding:4px 12px;"></div>');
   numbers.forEach(num => listCard.appendChild(copyRow(num)));
