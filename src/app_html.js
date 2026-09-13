@@ -1162,7 +1162,8 @@ async function handleEventScan(eventId, number){
   try { item = await api('/items/' + encodeURIComponent(number)); }
   catch(e){ toast('Unbekannte Nummer: ' + number, true); return; }
 
-  if(item.device && item.device.device_type === 'kiste'){
+  const cfg = await loadConfig();
+  if(item.prefix === cfg.deviceTypes.kiste.prefix){
     const ok = await handleContainerScan(number, eventId);
     if(ok && currentView === 'event-detail') goTo('event-detail', { id: eventId });
     return;
@@ -1185,6 +1186,7 @@ async function handleEventScan(eventId, number){
 views['event-detail'] = async function(params){
   setActiveTab('events');
   const ev = await api('/events/' + params.id);
+  const cfg = await loadConfig();
   app.innerHTML = '';
 
   const backBtn = el('<button class="btn ghost" style="margin-bottom:12px;">← Alle Events</button>');
@@ -1238,7 +1240,7 @@ views['event-detail'] = async function(params){
   const listWrap = el('<div class="card" style="padding:4px 12px;"></div>');
   if(!ev.packlist.length){ listWrap.appendChild(el('<div class="empty">Packliste ist leer.</div>')); }
   ev.packlist.forEach(it => {
-    const isKiste = it.device && it.device.device_type === 'kiste';
+    const isKiste = it.prefix === cfg.deviceTypes.kiste.prefix;
     const row = el('<div class="item-row"></div>');
     row.appendChild(el('<span class="status-dot ' + (it.packed ? 'aktiv' : 'reserviert') + '"></span>'));
     row.appendChild(el('<div class="grow"><div class="num">' + esc(it.number) + (isKiste ? ' 📦' : '') + '</div></div>'));

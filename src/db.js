@@ -47,7 +47,11 @@ async function attachDetails(db, item) {
     result.container = null;
   }
 
-  if (result.device && result.device.device_type === "kiste") {
+  // Prefix statt devices-Tabelle prüfen: eine gerade erst reservierte Kiste hat
+  // noch keine Zeile in "devices" (die entsteht erst beim ersten Speichern),
+  // soll aber trotzdem sofort als Kiste funktionieren (Inhalt hinzufügen etc.).
+  const kindInfo = prefixInfo(item.prefix);
+  if (kindInfo && kindInfo.kind === "geraet" && kindInfo.key === "kiste") {
     const { results } = await db
       .prepare(`SELECT * FROM items WHERE container_item_id = ? ORDER BY number`)
       .bind(item.id)
@@ -157,9 +161,12 @@ export async function setItemContainer(db, number, containerNumber) {
 
   if (containerNumber === number) throw new Error("Ein Item kann sich nicht selbst enthalten.");
 
-  const container = await db.prepare(`SELECT items.*, devices.device_type FROM items LEFT JOIN devices ON devices.item_id = items.id WHERE items.number = ?`).bind(containerNumber).first();
+  const container = await db.prepare(`SELECT * FROM items WHERE number = ?`).bind(containerNumber).first();
   if (!container) throw new Error("Kiste (" + containerNumber + ") nicht gefunden.");
-  if (container.device_type !== "kiste") throw new Error(containerNumber + " ist keine Kiste.");
+  const containerInfo = prefixInfo(container.prefix);
+  if (!containerInfo || containerInfo.kind !== "geraet" || containerInfo.key !== "kiste") {
+    throw new Error(containerNumber + " ist keine Kiste.");
+  }
 
   await db
     .prepare(`UPDATE items SET container_item_id = ?, updated_at = ? WHERE id = ?`)
@@ -275,9 +282,12 @@ export async function setEventItemPacked(db, eventId, number, packed) {
 
 // Kiste + kompletten aktuellen Inhalt fürs Event abhaken (fügt fehlende automatisch zur Packliste hinzu).
 export async function packContainerForEvent(db, eventId, containerNumber) {
-  const container = await db.prepare(`SELECT items.*, devices.device_type FROM items LEFT JOIN devices ON devices.item_id = items.id WHERE items.number = ?`).bind(containerNumber).first();
+  const container = await db.prepare(`SELECT * FROM items WHERE number = ?`).bind(containerNumber).first();
   if (!container) throw new Error("Nummer nicht gefunden: " + containerNumber);
-  if (container.device_type !== "kiste") throw new Error(containerNumber + " ist keine Kiste.");
+  const containerInfo = prefixInfo(container.prefix);
+  if (!containerInfo || containerInfo.kind !== "geraet" || containerInfo.key !== "kiste") {
+    throw new Error(containerNumber + " ist keine Kiste.");
+  }
 
   const { results: contents } = await db.prepare(`SELECT id FROM items WHERE container_item_id = ?`).bind(container.id).all();
   const ids = [container.id, ...contents.map((c) => c.id)];
