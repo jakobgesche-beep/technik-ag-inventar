@@ -400,10 +400,13 @@ async function getOcrWorker(){
   return ocrWorker;
 }
 
+// Gibt einen sauberen "PREFIX-###"-Code zurück, wenn der erkannte Text eindeutig
+// danach aussieht, sonst null (dann lieber zur Korrektur ins Eingabefeld statt
+// blind auf einen vermutlich falschen Code nachzuschlagen).
 function cleanOcrGuess(raw){
   const s = (raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const m = s.match(/^([A-Z]{2,6})(\d{1,6})$/);
-  return m ? (m[1] + '-' + m[2]) : s;
+  return m ? (m[1] + '-' + m[2]) : null;
 }
 
 function buildScanner(onDetect){
@@ -441,11 +444,14 @@ function buildScanner(onDetect){
       const { data } = await worker.recognize(canvas);
       const guess = cleanOcrGuess(data.text);
       if(guess){
-        input.value = guess;
-        input.focus();
-        toast('Vorschlag: ' + guess + ' — bitte prüfen und bestätigen');
+        toast('Erkannt: ' + guess);
+        stopScanner();
+        onDetect(guess);
+        return;
       } else {
-        toast('Kein Text erkannt, bitte manuell eingeben.', true);
+        const raw = (data.text || '').trim();
+        if(raw) input.value = raw.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+        toast(raw ? 'Nicht eindeutig erkannt — bitte prüfen/korrigieren.' : 'Kein Text erkannt, bitte manuell eingeben.', true);
       }
     } catch(e){
       toast('Texterkennung fehlgeschlagen: ' + e.message, true);
