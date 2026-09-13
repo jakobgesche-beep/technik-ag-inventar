@@ -58,27 +58,25 @@ zur Verfügung steht.
 
 ### Codes
 
-Die App druckt/erzeugt selbst **keinen** Barcode oder QR-Code — sie zeigt nur
-den reinen Code als Text mit einem „Kopieren"-Button (Zwischenablage). Das
-physische Label (inkl. eines eventuellen Barcodes/QR-Codes) entsteht in eurer
-eigenen Label-Drucker-App, in die der kopierte Code eingefügt wird.
+Jede Nummer wird als **QR-Code** angezeigt (Bibliothek `qrcode-generator`),
+zusätzlich als reiner Text mit „Kopieren"-Button (Zwischenablage) — z. B. zum
+Einfügen in eine externe Label-Drucker-App, falls die keine Bilder importieren
+kann. Der QR-Code lässt sich als Screenshot/Bild genauso mit aufs Etikett
+nehmen.
 
-Gescannt wird trotzdem per Kamera: Was auch immer als Symbol auf dem
-aufgeklebten Label landet (Code128-Barcode, QR-Code, …), erkennt die App über
-die Bibliothek `ZXing` — die App macht selbst `getUserMedia`/`<video>` auf
+Gescannt wird per Kamera über die Bibliothek `ZXing` (erkennt QR-Codes und
+mehrere Barcode-Formate) — die App macht selbst `getUserMedia`/`<video>` auf
 (dadurch ist die Live-Vorschau garantiert sichtbar) und übergibt jedes
-Kamera-Bild an ZXing zur Erkennung, statt die native `BarcodeDetector`-API zu
-nutzen (die unterstützt Safari auf dem iPhone nicht).
+Kamera-Bild an ZXing, statt die native `BarcodeDetector`-API zu nutzen (die
+unterstützt Safari auf dem iPhone nicht).
 
-Falls das Label nur aus reinem, gedrucktem Text ohne Barcode/QR besteht (z. B.
-weil der externe Labeldrucker keinen Barcode kann), gibt es zusätzlich einen
-**„Foto aufnehmen & Text lesen"**-Button im Scanner: Er nimmt ein Einzelbild
-auf und erkennt den Text darauf per `Tesseract.js` (OCR). Das ist bewusst
-**kein** Dauer-Scan wie bei Barcodes — Texterkennung ist langsamer und
-unsicherer —, sondern liefert einen Vorschlag im Eingabefeld, den man vor dem
-Bestätigen kurz prüfen/korrigieren kann. Fällt die Kamera-Erkennung ganz aus
-(kein Kamerazugriff erlaubt o. Ä.) oder taugt der OCR-Vorschlag nicht, kann
-die Nummer jederzeit manuell eingetippt werden.
+Zusätzlich gibt es einen **„Foto aufnehmen & Text lesen"**-Button (OCR über
+`Tesseract.js`) für den Fall, dass irgendwo nur reiner Text ohne QR/Barcode
+klebt. Das ist bewusst kein Dauer-Scan wie bei QR/Barcode — Texterkennung ist
+langsamer und unsicherer —, sondern liefert nur einen Vorschlag im
+Eingabefeld zum Prüfen/Korrigieren vor dem Bestätigen. Fällt die
+Kamera-Erkennung ganz aus (kein Kamerazugriff erlaubt o. Ä.), kann die Nummer
+jederzeit manuell eingetippt werden.
 
 ## Setup
 
