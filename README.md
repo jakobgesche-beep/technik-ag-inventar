@@ -68,9 +68,17 @@ aufgeklebten Label landet (Code128-Barcode, QR-Code, …), erkennt die App über
 die Bibliothek `ZXing` — die App macht selbst `getUserMedia`/`<video>` auf
 (dadurch ist die Live-Vorschau garantiert sichtbar) und übergibt jedes
 Kamera-Bild an ZXing zur Erkennung, statt die native `BarcodeDetector`-API zu
-nutzen (die unterstützt Safari auf dem iPhone nicht). Fällt die
-Kamera-Erkennung trotzdem aus (kein Kamerazugriff erlaubt o. Ä.), kann die
-Nummer jederzeit manuell eingetippt werden.
+nutzen (die unterstützt Safari auf dem iPhone nicht).
+
+Falls das Label nur aus reinem, gedrucktem Text ohne Barcode/QR besteht (z. B.
+weil der externe Labeldrucker keinen Barcode kann), gibt es zusätzlich einen
+**„Foto aufnehmen & Text lesen"**-Button im Scanner: Er nimmt ein Einzelbild
+auf und erkennt den Text darauf per `Tesseract.js` (OCR). Das ist bewusst
+**kein** Dauer-Scan wie bei Barcodes — Texterkennung ist langsamer und
+unsicherer —, sondern liefert einen Vorschlag im Eingabefeld, den man vor dem
+Bestätigen kurz prüfen/korrigieren kann. Fällt die Kamera-Erkennung ganz aus
+(kein Kamerazugriff erlaubt o. Ä.) oder taugt der OCR-Vorschlag nicht, kann
+die Nummer jederzeit manuell eingetippt werden.
 
 ## Setup
 

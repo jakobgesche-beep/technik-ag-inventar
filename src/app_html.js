@@ -12,6 +12,7 @@ export function getAppHtml() {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.23.0/umd/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <style>
 ${CSS}
 </style>
@@ -361,11 +362,37 @@ function runScanner(box, onDetect){
     });
 }
 
+// ================= TEXTERKENNUNG (OCR) =================
+// Für Labels ohne Barcode/QR, nur mit reinem Text bedruckt. Läuft NICHT
+// kontinuierlich wie die Barcode-Erkennung (dafür ist OCR zu langsam/unsicher),
+// sondern auf Knopfdruck: ein Foto wird aufgenommen und einmalig erkannt.
+// Ergebnis landet im manuellen Eingabefeld zum Prüfen/Korrigieren, statt
+// blind nachzuschlagen.
+let ocrWorker = null;
+async function getOcrWorker(){
+  if(ocrWorker) return ocrWorker;
+  ocrWorker = await Tesseract.createWorker('eng');
+  await ocrWorker.setParameters({ tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-' });
+  return ocrWorker;
+}
+
+function cleanOcrGuess(raw){
+  const s = (raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const m = s.match(/^([A-Z]{2,6})(\d{1,6})$/);
+  return m ? (m[1] + '-' + m[2]) : s;
+}
+
 function buildScanner(onDetect){
   const wrap = el('<div></div>');
   const box = el('<div class="scanbox"><div class="scan-placeholder">Kamera wird gestartet …</div></div>');
   wrap.appendChild(box);
-  const manualWrap = el('<div class="field"><label>Nummer manuell eingeben</label><input type="text" placeholder="z. B. MIK-001" autocapitalize="characters" /></div>');
+
+  const ocrBtn = el('<button type="button" class="btn secondary" style="margin-bottom:14px;">Foto aufnehmen &amp; Text lesen</button>');
+  wrap.appendChild(ocrBtn);
+  const ocrStatus = el('<p class="hint" style="display:none;">Erkenne Text …</p>');
+  wrap.appendChild(ocrStatus);
+
+  const manualWrap = el('<div class="field"><label>Nummer manuell eingeben (oder Vorschlag oben prüfen)</label><input type="text" placeholder="z. B. MIK-001" autocapitalize="characters" /></div>');
   wrap.appendChild(manualWrap);
   const goBtn = el('<button class="btn secondary">Nachschlagen</button>');
   wrap.appendChild(goBtn);
@@ -375,6 +402,35 @@ function buildScanner(onDetect){
     if(v){ stopScanner(); onDetect(v); }
   });
   input.addEventListener('keydown', (e) => { if(e.key === 'Enter') goBtn.click(); });
+
+  ocrBtn.addEventListener('click', async () => {
+    const video = box.querySelector('video');
+    if(!video || !video.videoWidth){ toast('Kamera noch nicht bereit.', true); return; }
+    ocrBtn.disabled = true;
+    ocrStatus.style.display = 'block';
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      const worker = await getOcrWorker();
+      const { data } = await worker.recognize(canvas);
+      const guess = cleanOcrGuess(data.text);
+      if(guess){
+        input.value = guess;
+        input.focus();
+        toast('Vorschlag: ' + guess + ' — bitte prüfen und bestätigen');
+      } else {
+        toast('Kein Text erkannt, bitte manuell eingeben.', true);
+      }
+    } catch(e){
+      toast('Texterkennung fehlgeschlagen: ' + e.message, true);
+    } finally {
+      ocrBtn.disabled = false;
+      ocrStatus.style.display = 'none';
+    }
+  });
+
   runScanner(box, onDetect);
   return wrap;
 }
@@ -382,7 +438,7 @@ function buildScanner(onDetect){
 views.scan = async function(){
   app.innerHTML = '';
   app.appendChild(el('<h2 class="section-title">Scannen</h2>'));
-  app.appendChild(el('<p class="hint">Kamera auf den Code auf dem Kabel/Gerät richten, oder die Nummer unten eintippen.</p>'));
+  app.appendChild(el('<p class="hint">Kamera auf den Code auf dem Kabel/Gerät richten (Barcode/QR wird sofort erkannt). Bei reinem Text-Label: „Foto aufnehmen" tippen, Vorschlag prüfen. Sonst Nummer unten eintippen.</p>'));
   app.appendChild(buildScanner(lookupNumber));
 };
 
