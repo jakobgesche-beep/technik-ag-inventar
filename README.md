@@ -58,11 +58,10 @@ zur Verfügung steht.
 
 ### Codes
 
-Jede Nummer wird als **QR-Code** angezeigt (Bibliothek `qrcode-generator`),
-zusätzlich als reiner Text mit „Kopieren"-Button (Zwischenablage) — z. B. zum
-Einfügen in eine externe Label-Drucker-App, falls die keine Bilder importieren
-kann. Der QR-Code lässt sich als Screenshot/Bild genauso mit aufs Etikett
-nehmen.
+Die App erzeugt selbst kein druckbares Bild — jede Nummer wird als reiner
+Text mit „Kopieren"-Button (Zwischenablage) angezeigt, zum Einfügen in die
+externe Label-Drucker-App. Die druckt das eigentliche Label (inkl. eines
+QR-Codes, den sie selbst aus dem eingefügten Text erzeugt).
 
 Gescannt wird per Kamera über die Bibliothek `ZXing` (erkennt QR-Codes und
 mehrere Barcode-Formate) — die App macht selbst `getUserMedia`/`<video>` auf

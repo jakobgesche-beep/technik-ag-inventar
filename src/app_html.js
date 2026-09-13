@@ -13,7 +13,6 @@ export function getAppHtml() {
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.23.0/umd/index.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/dist/qrcode.min.js"></script>
 <style>
 ${CSS}
 </style>
@@ -444,37 +443,11 @@ views.scan = async function(){
 };
 
 // ================= LABELS =================
-// Die App zeigt den Code als Text (kopierbar, z. B. für eine externe
-// Label-Drucker-App) UND als QR-Code (zuverlässig per Kamera scannbar, auch
-// wenn die externe Label-App nur Text kann — dann einfach den QR-Code als
-// Bild/Screenshot mit aufs Etikett nehmen oder separat aufkleben).
-function makeQrHtml(text, cellSize){
-  const qr = qrcode(0, 'M');
-  qr.addData(text);
-  qr.make();
-  return qr.createImgTag(cellSize || 4, 4);
-}
-
-function codeRowWithQr(text){
-  const row = el('<div class="copy-row"></div>');
-  const left = el('<div style="display:flex;align-items:center;gap:10px;min-width:0;"></div>');
-  const qrWrap = el('<div style="width:40px;height:40px;flex:none;"></div>');
-  qrWrap.innerHTML = makeQrHtml(text, 2);
-  const img = qrWrap.querySelector('img');
-  img.style.width = '100%';
-  img.style.height = '100%';
-  left.appendChild(qrWrap);
-  left.appendChild(el('<span class="copy-text">' + esc(text) + '</span>'));
-  row.appendChild(left);
-  const btn = el('<button type="button" class="btn ghost" style="width:auto;padding:6px 12px;font-size:12.5px;flex:none;">Kopieren</button>');
-  btn.addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(text); toast('Kopiert: ' + text); }
-    catch(e){ toast('Kopieren nicht möglich.', true); }
-  });
-  row.appendChild(btn);
-  return row;
-}
-
+// Die App erzeugt selbst kein druckbares Bild — der Code wird als Text
+// gezeigt und per Klick kopiert, zum Einfügen in die externe Label-App, die
+// das eigentliche Label (inkl. eines eventuellen QR-Codes) druckt. Gescannt
+// wird trotzdem per Kamera: die Bibliothek ZXing erkennt, was auch immer auf
+// dem physisch aufgeklebten Label landet (QR-Code, Barcode, …).
 function copyRow(text){
   const row = el('<div class="copy-row"><span class="copy-text"></span><button type="button" class="btn ghost" style="width:auto;padding:6px 12px;font-size:12.5px;">Kopieren</button></div>');
   row.querySelector('.copy-text').textContent = text;
@@ -623,13 +596,10 @@ async function renderItemDetail(item){
   app.appendChild(dangerRow);
 
   app.appendChild(el('<h3 class="section-title" style="font-size:16px;margin-top:22px;">Code</h3>'));
-  const codeCard = el('<div class="card" style="display:flex;flex-direction:column;align-items:center;gap:8px;"></div>');
-  codeCard.innerHTML = makeQrHtml(item.number, 5);
+  const codeCard = el('<div class="card"></div>');
+  codeCard.appendChild(copyRow(item.number));
+  codeCard.appendChild(copyRow(labelText(item, info)));
   app.appendChild(codeCard);
-  const codeTextCard = el('<div class="card"></div>');
-  codeTextCard.appendChild(copyRow(item.number));
-  codeTextCard.appendChild(copyRow(labelText(item, info)));
-  app.appendChild(codeTextCard);
 
   if(info.kind === 'geraet' && info.typeKey === 'kiste'){
     app.appendChild(el('<h3 class="section-title" style="font-size:16px;margin-top:22px;">Inhalt</h3>'));
@@ -857,7 +827,7 @@ function renderCodeList(container, numbers, prefix, cfg, details){
   }
 
   const listCard = el('<div class="card" style="padding:4px 12px;"></div>');
-  numbers.forEach(num => listCard.appendChild(codeRowWithQr(num)));
+  numbers.forEach(num => listCard.appendChild(copyRow(num)));
   container.appendChild(listCard);
 
   const goScan = el('<button class="btn ghost" style="margin-top:14px;">Zum Scanner</button>');
