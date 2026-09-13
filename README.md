@@ -8,11 +8,13 @@ kein Supabase, keine Accounts, kein separates Hosting nötig.
 
 1. **„Neu"**: Kategorie wählen (z. B. Mikrofonkabel, Boxen, Funkmikro, Kiste …),
    Anzahl festlegen → die App reserviert die nächsten freien Nummern (z. B.
-   `MIK-004`, `MIK-005`) und zeigt sie als druckbare Labels mit Barcode
-   (Code128) an. Diese Labels ausdrucken/mit dem Beschriftungsgerät
-   übertragen und aufkleben.
-2. **„Scanner"**: Kamera auf die aufgeklebte Nummer halten (oder Nummer eintippen,
-   falls Kamera-Scan nicht unterstützt wird). Die App erkennt am Präfix
+   `MIK-004`, `MIK-005`) und zeigt sie als druckbare Labels mit QR-Code an.
+   Diese Labels ausdrucken/mit dem Beschriftungsgerät übertragen und aufkleben.
+   Nach dem Erfassen der Details lässt sich auf der Item-Seite jederzeit ein
+   aktuelles Label nachdrucken, das dann auch Marke/Modell (bzw. bei Kabeln
+   den Kabeltyp) mit anzeigt.
+2. **„Scanner"**: Kamera auf den aufgeklebten QR-Code halten (oder Nummer
+   eintippen, falls Kamera-Scan nicht möglich ist). Die App erkennt am Präfix
    automatisch die Kategorie und zeigt die passenden Felder (bei Kabeln:
    Bereich, Kabeltyp, Stecker A/B, Länge; bei Geräten: Bereich, Marke, Modell,
    aktiv/passiv, Rack-Zuordnung bei Funkmikros). Ein neu erfasstes Item wird
@@ -56,14 +58,14 @@ zur Verfügung steht.
 
 ### Codes
 
-Standard ist ein **Code128-Barcode** mit der Nummer als Klartext (wird beim
-Scannen von der nativen Kamera-Barcode-Erkennung des Handys gelesen, kein
-Zusatz-App nötig). Die Erkennung liest zusätzlich auch QR-Codes — falls ihr
-später doch QR-Codes verwenden wollt, einfach QR statt Barcode drucken, die
-App erkennt beides automatisch. Fällt die Kamera-Erkennung auf einem Gerät
-weg (nicht jeder Browser unterstützt die `BarcodeDetector`-API, v. a. iPhone
-Safari teils eingeschränkt), kann die Nummer jederzeit manuell eingetippt
-werden.
+Jede Nummer wird als **QR-Code** gedruckt (Bibliothek `qrcode-generator`) und
+per Kamera mit `qr-scanner` erkannt — beide laufen als reines JavaScript im
+Browser (Canvas-Dekodierung über einen Web Worker), nicht über die native
+`BarcodeDetector`-API. Das ist bewusst so gewählt, weil Safari auf dem iPhone
+`BarcodeDetector` nicht unterstützt; mit QR-Codes funktioniert die
+Kamera-Erkennung zuverlässig auch auf iOS. Fällt die Kamera-Erkennung trotzdem
+aus (kein Kamerazugriff erlaubt o. Ä.), kann die Nummer jederzeit manuell
+eingetippt werden.
 
 ## Setup
 

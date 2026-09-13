@@ -11,7 +11,8 @@ export function getAppHtml() {
 <link rel="icon" href="/icon-192.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qr-scanner@1.4.2/qr-scanner.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/dist/qrcode.min.js"></script>
 <style>
 ${CSS}
 </style>
@@ -221,8 +222,9 @@ h1,h2,h3,.headline{font-family:var(--font-head);letter-spacing:-0.01em;}
   border:1px dashed var(--accent-dim);border-radius:var(--radius-label);padding:10px;
   display:flex;flex-direction:column;align-items:center;background:var(--panel);
 }
-.label-card svg{max-width:100%;}
-.label-card .cat{font-size:10.5px;color:var(--muted);margin-top:4px;}
+.label-card svg,.label-card img{max-width:100%;height:auto;image-rendering:pixelated;}
+.label-card .num-text{font-family:var(--font-mono);font-weight:700;font-size:14px;letter-spacing:0.03em;margin-top:6px;}
+.label-card .cat{font-size:10.5px;color:var(--muted);margin-top:4px;text-align:center;}
 
 @media print{
   body *{visibility:hidden;}
@@ -303,56 +305,48 @@ tabbar.addEventListener('click', (e) => {
 // ================= SCANNER =================
 // runScanner/buildScanner sind die gemeinsame Kamera-Logik, wiederverwendet vom
 // Scan-Tab, dem Kisteninhalt-Scanner und dem Event-Packscanner.
-let scanState = null;
+// Nutzt die qr-scanner-Bibliothek (Canvas-Dekodierung via Web Worker) statt der
+// nativen BarcodeDetector-API, da Safari auf dem iPhone BarcodeDetector nicht
+// unterstützt (die Kamera ging dort vorher gar nicht erst an).
+let activeQrScanner = null;
 
 function stopScanner(){
-  if(scanState){
-    scanState.scanning = false;
-    if(scanState.stream){ scanState.stream.getTracks().forEach(t => t.stop()); }
+  if(activeQrScanner){
+    try { activeQrScanner.stop(); activeQrScanner.destroy(); } catch(e){}
   }
-  scanState = null;
+  activeQrScanner = null;
 }
 
-async function runScanner(box, onDetect){
+function runScanner(box, onDetect){
   stopScanner();
-  const state = { stream: null, detector: null, scanning: false };
-  scanState = state;
 
-  if(!('BarcodeDetector' in window)){
-    box.innerHTML = '<div class="scan-placeholder">Dieser Browser unterstützt keine Kamera-Erkennung.<br/>Bitte Nummer manuell eingeben.</div>';
+  if(typeof QrScanner === 'undefined'){
+    box.innerHTML = '<div class="scan-placeholder">Scanner-Bibliothek konnte nicht geladen werden.<br/>Bitte Nummer manuell eingeben.</div>';
     return;
   }
 
-  try {
-    const formats = await BarcodeDetector.getSupportedFormats();
-    const use = formats.filter(f => ['code_128','qr_code','ean_13','code_39'].includes(f));
-    state.detector = new BarcodeDetector({ formats: use.length ? use : formats });
-    state.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-    if(scanState !== state) { state.stream.getTracks().forEach(t => t.stop()); return; }
-    box.innerHTML = '';
-    const video = document.createElement('video');
-    video.setAttribute('playsinline','');
-    video.muted = true;
-    box.appendChild(video);
-    box.appendChild(el('<div class="scan-frame"></div>'));
-    video.srcObject = state.stream;
-    await video.play();
-    state.scanning = true;
-    const loop = async () => {
-      if(scanState !== state || !state.scanning) return;
-      try {
-        const codes = await state.detector.detect(video);
-        if(codes && codes.length){
-          const val = (codes[0].rawValue || '').trim().toUpperCase();
-          if(val){ stopScanner(); onDetect(val); return; }
-        }
-      } catch(e){}
-      requestAnimationFrame(loop);
-    };
-    loop();
-  } catch(e){
+  box.innerHTML = '';
+  const video = document.createElement('video');
+  video.setAttribute('playsinline','');
+  video.muted = true;
+  box.appendChild(video);
+  box.appendChild(el('<div class="scan-frame"></div>'));
+
+  const scanner = new QrScanner(video, (result) => {
+    const val = ((result && result.data) || '').trim().toUpperCase();
+    if(val){ stopScanner(); onDetect(val); }
+  }, {
+    preferredCamera: 'environment',
+    highlightScanRegion: false,
+    highlightCodeOutline: false,
+    maxScansPerSecond: 5,
+    returnDetailedScanResult: true,
+  });
+  activeQrScanner = scanner;
+  scanner.start().catch((e) => {
     box.innerHTML = '<div class="scan-placeholder">Kein Kamerazugriff (' + e.message + ').<br/>Bitte Nummer manuell eingeben.</div>';
-  }
+    if(activeQrScanner === scanner) activeQrScanner = null;
+  });
 }
 
 function buildScanner(onDetect){
@@ -376,9 +370,31 @@ function buildScanner(onDetect){
 views.scan = async function(){
   app.innerHTML = '';
   app.appendChild(el('<h2 class="section-title">Scannen</h2>'));
-  app.appendChild(el('<p class="hint">Kamera auf die Nummer auf dem Kabel/Gerät richten, oder die Nummer unten eintippen.</p>'));
+  app.appendChild(el('<p class="hint">Kamera auf den QR-Code auf dem Kabel/Gerät richten, oder die Nummer unten eintippen.</p>'));
   app.appendChild(buildScanner(lookupNumber));
 };
+
+// ================= QR-LABELS =================
+// makeQrHtml erzeugt ein <img>-Tag mit dem QR-Code als Data-URL (qrcode-generator
+// arbeitet synchron, kein Warten auf DOM-Einbindung wie bei der alten Barcode-Lib nötig).
+function makeQrHtml(text, cellSize){
+  const qr = qrcode(0, 'M');
+  qr.addData(text);
+  qr.make();
+  return qr.createImgTag(cellSize || 4, 4);
+}
+
+// Text, der unter dem QR-Code stehen soll: bei Geräten Marke+Modell (sobald erfasst),
+// sonst die Kategorie-Bezeichnung — damit man das Teil auch ohne Scan erkennt.
+function labelText(item, info){
+  if(info.kind === 'kabel'){
+    const parts = [info.cat.label, item.cable && item.cable.cable_type].filter(Boolean);
+    return parts.join(' · ');
+  }
+  const d = item.device || {};
+  const name = [d.brand, d.model].filter(Boolean).join(' ').trim();
+  return name || info.type.label;
+}
 
 async function lookupNumber(number){
   stopScanner();
@@ -499,6 +515,14 @@ async function renderItemDetail(item){
   dangerRow.appendChild(outBtn);
   dangerRow.appendChild(delBtn);
   app.appendChild(dangerRow);
+
+  app.appendChild(el('<h3 class="section-title" style="font-size:16px;margin-top:22px;">Label</h3>'));
+  const labelSheet = el('<div class="label-sheet" id="print-area" style="grid-template-columns:1fr;max-width:200px;"></div>');
+  labelSheet.appendChild(el('<div class="label-card">' + makeQrHtml(item.number, 5) + '<div class="num-text">' + esc(item.number) + '</div><div class="cat">' + esc(labelText(item, info)) + '</div></div>'));
+  app.appendChild(labelSheet);
+  const printItemBtn = el('<button class="btn secondary" style="margin-top:10px;">Label drucken</button>');
+  printItemBtn.addEventListener('click', () => window.print());
+  app.appendChild(printItemBtn);
 
   if(info.kind === 'geraet' && info.typeKey === 'kiste'){
     app.appendChild(el('<h3 class="section-title" style="font-size:16px;margin-top:22px;">Inhalt</h3>'));
@@ -696,13 +720,8 @@ function renderLabelSheet(container, numbers, prefix, cfg){
 
   const sheet = el('<div class="label-sheet" id="print-area"></div>');
   numbers.forEach(num => {
-    const card = el('<div class="label-card"><svg class="bc"></svg><div class="cat">' + (info ? info.label : '') + '</div></div>');
+    const card = el('<div class="label-card">' + makeQrHtml(num, 4) + '<div class="num-text">' + esc(num) + '</div><div class="cat">' + esc(info ? info.label : '') + '</div></div>');
     sheet.appendChild(card);
-    setTimeout(() => {
-      try {
-        JsBarcode(card.querySelector('.bc'), num, { format:'CODE128', displayValue:true, fontSize:14, height:36, margin:4, background:'transparent', lineColor: getComputedStyle(document.body).getPropertyValue('--text') || '#EDEAE2' });
-      } catch(e){}
-    }, 0);
   });
   container.appendChild(sheet);
 
