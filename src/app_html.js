@@ -11,8 +11,8 @@ export function getAppHtml() {
 <link rel="icon" href="/icon-192.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/dist/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.23.0/umd/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 <style>
 ${CSS}
 </style>
@@ -222,8 +222,7 @@ h1,h2,h3,.headline{font-family:var(--font-head);letter-spacing:-0.01em;}
   border:1px dashed var(--accent-dim);border-radius:var(--radius-label);padding:10px;
   display:flex;flex-direction:column;align-items:center;background:var(--panel);
 }
-.label-card svg,.label-card img{max-width:100%;height:auto;image-rendering:pixelated;}
-.label-card .num-text{font-family:var(--font-mono);font-weight:700;font-size:14px;letter-spacing:0.03em;margin-top:6px;}
+.label-card svg{max-width:100%;}
 .label-card .cat{font-size:10.5px;color:var(--muted);margin-top:4px;text-align:center;}
 
 @media print{
@@ -305,21 +304,21 @@ tabbar.addEventListener('click', (e) => {
 // ================= SCANNER =================
 // runScanner/buildScanner sind die gemeinsame Kamera-Logik, wiederverwendet vom
 // Scan-Tab, dem Kisteninhalt-Scanner und dem Event-Packscanner.
-// Eigene, transparente Implementierung (getUserMedia + <video> + Canvas + jsQR)
-// statt einer fertigen Scanner-Bibliothek, damit die Live-Vorschau garantiert
-// sichtbar ist und wir volle Kontrolle über das <video>-Element haben. Native
-// BarcodeDetector fällt weg, weil Safari auf dem iPhone das nicht unterstützt.
-let activeQrScanner = null;
+// Kamera-Teil (getUserMedia + <video>) ist komplett selbst gebaut, damit die
+// Live-Vorschau garantiert sichtbar ist. Für die eigentliche Barcode-Erkennung
+// pro Frame wird ZXing genutzt (unterstützt Code128 + QR, canvas-basiert) statt
+// der nativen BarcodeDetector-API, die Safari auf dem iPhone nicht unterstützt.
+let activeScanner = null;
 
 function stopScanner(){
-  if(activeQrScanner){ try { activeQrScanner.stop(); } catch(e){} }
-  activeQrScanner = null;
+  if(activeScanner){ try { activeScanner.stop(); } catch(e){} }
+  activeScanner = null;
 }
 
 function runScanner(box, onDetect){
   stopScanner();
 
-  if(typeof jsQR === 'undefined' || !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)){
+  if(typeof ZXing === 'undefined' || !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)){
     box.innerHTML = '<div class="scan-placeholder">Kamera-Scan wird von diesem Browser nicht unterstützt.<br/>Bitte Nummer manuell eingeben.</div>';
     return;
   }
@@ -333,11 +332,10 @@ function runScanner(box, onDetect){
   box.appendChild(video);
   box.appendChild(el('<div class="scan-frame"></div>'));
 
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const reader = new ZXing.BrowserMultiFormatReader();
   let stream = null, raf = null, stopped = false, lastScan = 0;
 
-  activeQrScanner = {
+  activeScanner = {
     stop(){
       stopped = true;
       if(raf) cancelAnimationFrame(raf);
@@ -358,15 +356,11 @@ function runScanner(box, onDetect){
         if(stopped) return;
         if(video.readyState >= video.HAVE_ENOUGH_DATA && video.videoWidth && (!lastScan || ts - lastScan > 150)){
           lastScan = ts;
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const code = jsQR(imageData.data, imageData.width, imageData.height);
-          if(code && code.data){
-            const val = code.data.trim().toUpperCase();
+          try {
+            const result = reader.decode(video);
+            const val = (result.getText() || '').trim().toUpperCase();
             if(val){ stopScanner(); onDetect(val); return; }
-          }
+          } catch(e){ /* kein Code in diesem Frame erkannt - normal, weiter versuchen */ }
         }
         raf = requestAnimationFrame(tick);
       };
@@ -398,21 +392,26 @@ function buildScanner(onDetect){
 views.scan = async function(){
   app.innerHTML = '';
   app.appendChild(el('<h2 class="section-title">Scannen</h2>'));
-  app.appendChild(el('<p class="hint">Kamera auf den QR-Code auf dem Kabel/Gerät richten, oder die Nummer unten eintippen.</p>'));
+  app.appendChild(el('<p class="hint">Kamera auf den Code auf dem Kabel/Gerät richten, oder die Nummer unten eintippen.</p>'));
   app.appendChild(buildScanner(lookupNumber));
 };
 
-// ================= QR-LABELS =================
-// makeQrHtml erzeugt ein <img>-Tag mit dem QR-Code als Data-URL (qrcode-generator
-// arbeitet synchron, kein Warten auf DOM-Einbindung wie bei der alten Barcode-Lib nötig).
-function makeQrHtml(text, cellSize){
-  const qr = qrcode(0, 'M');
-  qr.addData(text);
-  qr.make();
-  return qr.createImgTag(cellSize || 4, 4);
+// ================= LABELS =================
+// renderBarcodeInto zeichnet einen Code128-Barcode in ein bereits im DOM
+// befindliches <svg>-Element (JsBarcode braucht das Element im Dokument, daher
+// der setTimeout(...,0) direkt nach dem Einfügen ins DOM).
+function renderBarcodeInto(svgEl, text){
+  setTimeout(() => {
+    try {
+      JsBarcode(svgEl, text, {
+        format: 'CODE128', displayValue: true, fontSize: 14, height: 36, margin: 4,
+        background: 'transparent', lineColor: getComputedStyle(document.body).getPropertyValue('--text') || '#EDEAE2',
+      });
+    } catch(e){}
+  }, 0);
 }
 
-// Text, der unter dem QR-Code stehen soll: bei Geräten Marke+Modell (sobald erfasst),
+// Text, der unter dem Code stehen soll: bei Geräten Marke+Modell (sobald erfasst),
 // sonst die Kategorie-Bezeichnung — damit man das Teil auch ohne Scan erkennt.
 function labelText(item, info){
   if(info.kind === 'kabel'){
@@ -545,8 +544,10 @@ async function renderItemDetail(item){
   app.appendChild(dangerRow);
 
   app.appendChild(el('<h3 class="section-title" style="font-size:16px;margin-top:22px;">Label</h3>'));
-  const labelSheet = el('<div class="label-sheet" id="print-area" style="grid-template-columns:1fr;max-width:200px;"></div>');
-  labelSheet.appendChild(el('<div class="label-card">' + makeQrHtml(item.number, 5) + '<div class="num-text">' + esc(item.number) + '</div><div class="cat">' + esc(labelText(item, info)) + '</div></div>'));
+  const labelSheet = el('<div class="label-sheet" id="print-area" style="grid-template-columns:1fr;max-width:220px;"></div>');
+  const labelCard = el('<div class="label-card"><svg class="bc"></svg><div class="cat">' + esc(labelText(item, info)) + '</div></div>');
+  labelSheet.appendChild(labelCard);
+  renderBarcodeInto(labelCard.querySelector('.bc'), item.number);
   app.appendChild(labelSheet);
   const printItemBtn = el('<button class="btn secondary" style="margin-top:10px;">Label drucken</button>');
   printItemBtn.addEventListener('click', () => window.print());
@@ -748,8 +749,9 @@ function renderLabelSheet(container, numbers, prefix, cfg){
 
   const sheet = el('<div class="label-sheet" id="print-area"></div>');
   numbers.forEach(num => {
-    const card = el('<div class="label-card">' + makeQrHtml(num, 4) + '<div class="num-text">' + esc(num) + '</div><div class="cat">' + esc(info ? info.label : '') + '</div></div>');
+    const card = el('<div class="label-card"><svg class="bc"></svg><div class="cat">' + esc(info ? info.label : '') + '</div></div>');
     sheet.appendChild(card);
+    renderBarcodeInto(card.querySelector('.bc'), num);
   });
   container.appendChild(sheet);
 

@@ -8,12 +8,12 @@ kein Supabase, keine Accounts, kein separates Hosting nötig.
 
 1. **„Neu"**: Kategorie wählen (z. B. Mikrofonkabel, Boxen, Funkmikro, Kiste …),
    Anzahl festlegen → die App reserviert die nächsten freien Nummern (z. B.
-   `MIK-004`, `MIK-005`) und zeigt sie als druckbare Labels mit QR-Code an.
-   Diese Labels ausdrucken/mit dem Beschriftungsgerät übertragen und aufkleben.
-   Nach dem Erfassen der Details lässt sich auf der Item-Seite jederzeit ein
-   aktuelles Label nachdrucken, das dann auch Marke/Modell (bzw. bei Kabeln
-   den Kabeltyp) mit anzeigt.
-2. **„Scanner"**: Kamera auf den aufgeklebten QR-Code halten (oder Nummer
+   `MIK-004`, `MIK-005`) und zeigt sie als druckbare Labels mit Code128-Barcode
+   an. Diese Labels ausdrucken/mit dem Beschriftungsgerät übertragen und
+   aufkleben. Nach dem Erfassen der Details lässt sich auf der Item-Seite
+   jederzeit ein aktuelles Label nachdrucken, das dann auch Marke/Modell (bzw.
+   bei Kabeln den Kabeltyp) mit anzeigt.
+2. **„Scanner"**: Kamera auf den aufgeklebten Code halten (oder Nummer
    eintippen, falls Kamera-Scan nicht möglich ist). Die App erkennt am Präfix
    automatisch die Kategorie und zeigt die passenden Felder (bei Kabeln:
    Bereich, Kabeltyp, Stecker A/B, Länge; bei Geräten: Bereich, Marke, Modell,
@@ -58,14 +58,15 @@ zur Verfügung steht.
 
 ### Codes
 
-Jede Nummer wird als **QR-Code** gedruckt (Bibliothek `qrcode-generator`) und
-per Kamera mit `jsQR` erkannt (eigene `getUserMedia` + `<video>` + Canvas-
-Logik, kein Framework drumherum) — nicht über die native `BarcodeDetector`-
-API. Das ist bewusst so gewählt, weil Safari auf dem iPhone `BarcodeDetector`
-nicht unterstützt; mit QR-Codes und jsQR funktioniert die Kamera-Erkennung
-zuverlässig auch auf iOS. Fällt die Kamera-Erkennung trotzdem aus (kein
-Kamerazugriff erlaubt o. Ä.), kann die Nummer jederzeit manuell eingetippt
-werden.
+Jede Nummer wird als **Code128-Barcode** gedruckt (Bibliothek `JsBarcode`) mit
+der Nummer als Klartext darunter. Die Kamera-Erkennung läuft über `ZXing`
+(unterstützt Code128 und mehrere andere Formate) statt über die native
+`BarcodeDetector`-API — die App macht selbst `getUserMedia`/`<video>` auf
+(dadurch ist die Live-Vorschau garantiert sichtbar) und übergibt jedes
+Kamera-Bild an ZXing zur Erkennung. Das ist bewusst so gewählt, weil Safari
+auf dem iPhone `BarcodeDetector` nicht unterstützt. Fällt die Kamera-Erkennung
+trotzdem aus (kein Kamerazugriff erlaubt o. Ä.), kann die Nummer jederzeit
+manuell eingetippt werden.
 
 ## Setup
 
