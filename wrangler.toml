@@ -1,0 +1,8 @@
+name = "technik-ag-inventar"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "technik_ag_db"
+database_id = "REPLACE_MIT_DEINER_DATABASE_ID"
