@@ -569,12 +569,16 @@ async function renderItemDetail(item){
     const c = item.cable || {};
     const defaultBereich = item.bereich || info.cat.defaultBereich;
     form.appendChild(fieldChips('Bereich', 'bereich', defaultBereich, ['licht','ton','allgemein'], cfg.bereichLabels));
-    form.appendChild(fieldSelectWithOther('Kabeltyp', 'cable_type', c.cable_type, ['XLR-Kabel','Klinke-Kabel','Speakon-Kabel','Cinch-Kabel','Verlängerung','Sonstiges']));
+    const cableTypeField = fieldSelectWithOther('Kabeltyp', 'cable_type', c.cable_type, ['XLR-Kabel','Klinke-Kabel','Speakon-Kabel','Cinch-Kabel','Verlängerung','Sonstiges']);
+    form.appendChild(cableTypeField);
     const row = el('<div class="row2"></div>');
-    row.appendChild(fieldSelect('Stecker A', 'connector_a', c.connector_a, info.cat.connectors));
-    row.appendChild(fieldSelect('Stecker B', 'connector_b', c.connector_b, info.cat.connectors));
+    const connAField = fieldSelect('Stecker A', 'connector_a', c.connector_a, info.cat.connectors);
+    const connBField = fieldSelect('Stecker B', 'connector_b', c.connector_b, info.cat.connectors);
+    row.appendChild(connAField);
+    row.appendChild(connBField);
     form.appendChild(row);
     form.appendChild(fieldNumber('Länge (m)', 'length_m', c.length_m));
+    wireCableTypeAutofill(cableTypeField.querySelector('select'), connAField.querySelector('select'), connBField.querySelector('select'), info.cat.connectors);
   } else {
     const d = item.device || {};
     const bereichCfg = info.type.bereich;
@@ -729,6 +733,37 @@ function fieldSelect(label, name, value, options){
 function fieldSelectWithOther(label, name, value, options){
   return fieldSelect(label, name, value, options);
 }
+
+// Kabeltyp → naheliegende Stecker A/B (z. B. "XLR-Kabel" → XLR male/female).
+// Findet passende Einträge in der Steckerliste der jeweiligen Kategorie über
+// ein Stichwort; bei "Verlängerung"/"Sonstiges" bleibt es leer (zu uneindeutig).
+const CABLE_TYPE_CONNECTOR_KEYWORD = {
+  'XLR-Kabel': 'xlr',
+  'Klinke-Kabel': 'klinke',
+  'Speakon-Kabel': 'speakon',
+  'Cinch-Kabel': 'cinch',
+};
+function defaultConnectorsForCableType(cableType, connectorOptions){
+  const keyword = CABLE_TYPE_CONNECTOR_KEYWORD[cableType];
+  if(!keyword) return null;
+  const matches = connectorOptions.filter(c => c.toLowerCase().includes(keyword));
+  if(!matches.length) return null;
+  const male = matches.find(c => /male/i.test(c));
+  const female = matches.find(c => /female/i.test(c));
+  if(male && female) return [male, female];
+  return [matches[0], matches[0]];
+}
+// Verdrahtet die Auto-Vorbelegung: bei Kabeltyp-Wechsel Stecker A/B passend
+// setzen (bleibt danach normal änderbar, für Adapterkabel mit gemischten
+// Steckern an beiden Enden).
+function wireCableTypeAutofill(cableTypeSelect, connAField, connBField, connectorOptions){
+  cableTypeSelect.addEventListener('change', () => {
+    const defaults = defaultConnectorsForCableType(cableTypeSelect.value, connectorOptions);
+    if(!defaults) return;
+    connAField.value = defaults[0];
+    connBField.value = defaults[1];
+  });
+}
 function fieldRackSelect(label, name, value, racks){
   const opts = racks.map(r => '<option value="' + r.id + '"' + (String(r.id)===String(value)?' selected':'') + '>' + esc(r.name) + '</option>').join('');
   return el('<div class="field"><label>' + label + '</label><select name="' + name + '"><option value="">– kein Rack –</option>' + opts + '</select></div>');
@@ -792,13 +827,17 @@ views.neu = async function(){
     const card = el('<div class="card"></div>');
     card.appendChild(el('<p class="hint" style="margin-bottom:12px;">Details gleich hier angeben (gelten für alle reservierten Nummern dieser Runde) — dann steht z. B. die Länge direkt in der kopierbaren Beschreibung.</p>'));
     card.appendChild(fieldChips('Bereich', 'bereich', cat.defaultBereich, ['licht','ton','allgemein'], cfg.bereichLabels));
-    card.appendChild(fieldSelectWithOther('Kabeltyp', 'cable_type', null, ['XLR-Kabel','Klinke-Kabel','Speakon-Kabel','Cinch-Kabel','Verlängerung','Sonstiges']));
+    const cableTypeField = fieldSelectWithOther('Kabeltyp', 'cable_type', null, ['XLR-Kabel','Klinke-Kabel','Speakon-Kabel','Cinch-Kabel','Verlängerung','Sonstiges']);
+    card.appendChild(cableTypeField);
     const row = el('<div class="row2"></div>');
-    row.appendChild(fieldSelect('Stecker A', 'connector_a', null, cat.connectors));
-    row.appendChild(fieldSelect('Stecker B', 'connector_b', null, cat.connectors));
+    const connAField = fieldSelect('Stecker A', 'connector_a', null, cat.connectors);
+    const connBField = fieldSelect('Stecker B', 'connector_b', null, cat.connectors);
+    row.appendChild(connAField);
+    row.appendChild(connBField);
     card.appendChild(row);
     card.appendChild(fieldNumber('Länge (m)', 'length_m', null));
     detailsWrap.appendChild(card);
+    wireCableTypeAutofill(cableTypeField.querySelector('select'), connAField.querySelector('select'), connBField.querySelector('select'), cat.connectors);
   }
 
   function renderCatChips(){
