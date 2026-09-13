@@ -1,5 +1,5 @@
 export const SW_JS = `
-const CACHE = 'technik-ag-v1';
+const CACHE = 'technik-ag-v2';
 const SHELL = ['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -22,20 +22,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // App-Shell: cache-first, im Hintergrund aktualisieren
+  // App-Shell: Netzwerk zuerst, damit Updates sofort ankommen (nicht erst beim
+  // übernächsten Laden) — nur bei fehlendem Netz auf den Cache zurückfallen.
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const fetchPromise = fetch(event.request)
-        .then((res) => {
-          if (res && res.ok) {
-            const clone = res.clone();
-            caches.open(CACHE).then((c) => c.put(event.request, clone));
-          }
-          return res;
-        })
-        .catch(() => cached);
-      return cached || fetchPromise;
-    })
+    fetch(event.request)
+      .then((res) => {
+        if (res && res.ok) {
+          const clone = res.clone();
+          caches.open(CACHE).then((c) => c.put(event.request, clone));
+        }
+        return res;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
 `;
