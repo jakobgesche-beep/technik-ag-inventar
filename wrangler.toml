@@ -5,4 +5,4 @@ compatibility_date = "2025-01-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "technik_ag_db"
-database_id = "REPLACE_MIT_DEINER_DATABASE_ID"
+database_id = "3dbf0459-2fbc-405e-9a22-d854713f227a"
