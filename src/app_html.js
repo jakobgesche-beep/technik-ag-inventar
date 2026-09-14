@@ -1194,6 +1194,30 @@ views['event-detail'] = async function(params){
   app.appendChild(el('<h2 class="section-title" style="margin-bottom:2px;">' + esc(ev.name) + '</h2>'));
   app.appendChild(el('<p class="hint">' + formatDate(ev.event_date) + (ev.location ? ' · ' + esc(ev.location) : '') + '</p>'));
 
+  // Unter-Tabs innerhalb des Events
+  const subTabs = el('<div class="chip-group" style="margin-bottom:16px;"></div>');
+  const tabOverview = el('<button type="button" class="chip active">Übersicht</button>');
+  const tabPatch = el('<button type="button" class="chip">Patchplan Rack</button>');
+  subTabs.appendChild(tabOverview);
+  subTabs.appendChild(tabPatch);
+  app.appendChild(subTabs);
+
+  const overviewSection = el('<div></div>');
+  const patchSection = el('<div></div>');
+  patchSection.hidden = true;
+  app.appendChild(overviewSection);
+  app.appendChild(patchSection);
+
+  tabOverview.addEventListener('click', () => {
+    tabOverview.classList.add('active'); tabPatch.classList.remove('active');
+    overviewSection.hidden = false; patchSection.hidden = true;
+  });
+  tabPatch.addEventListener('click', () => {
+    tabPatch.classList.add('active'); tabOverview.classList.remove('active');
+    patchSection.hidden = false; overviewSection.hidden = true;
+    stopScanner();
+  });
+
   const editCard = el('<div class="card"></div>');
   editCard.appendChild(fieldText('Name', 'name', ev.name));
   const erow = el('<div class="row2"></div>');
@@ -1205,7 +1229,7 @@ views['event-detail'] = async function(params){
   editCard.appendChild(saveBtn);
   const delEvBtn = el('<button class="btn danger" style="margin-top:10px;">Event löschen</button>');
   editCard.appendChild(delEvBtn);
-  app.appendChild(editCard);
+  overviewSection.appendChild(editCard);
 
   saveBtn.addEventListener('click', async () => {
     const payload = collectFormValues(editCard);
@@ -1220,13 +1244,13 @@ views['event-detail'] = async function(params){
     goTo('events');
   });
 
-  app.appendChild(el('<h3 class="section-title" style="font-size:16px;margin-top:22px;">Packliste (' + ev.progress.packed + '/' + ev.progress.total + ')</h3>'));
+  overviewSection.appendChild(el('<h3 class="section-title" style="font-size:16px;margin-top:22px;">Packliste (' + ev.progress.packed + '/' + ev.progress.total + ')</h3>'));
 
   const addRow = el('<div class="btn-row" style="margin-bottom:14px;"></div>');
   const addInput = el('<input type="text" placeholder="Nummer, z. B. KIS-001" autocapitalize="characters" style="flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:11px 12px;font-size:15px;">');
   const addPBtn = el('<button class="btn" style="width:auto;">+</button>');
   addRow.appendChild(addInput); addRow.appendChild(addPBtn);
-  app.appendChild(addRow);
+  overviewSection.appendChild(addRow);
   addPBtn.addEventListener('click', async () => {
     const num = addInput.value.trim().toUpperCase();
     if(!num) return;
@@ -1264,12 +1288,15 @@ views['event-detail'] = async function(params){
     row.appendChild(rm);
     listWrap.appendChild(row);
   });
-  app.appendChild(listWrap);
+  overviewSection.appendChild(listWrap);
 
-  app.appendChild(el('<h3 class="section-title" style="font-size:16px;margin-top:22px;">Zum Abhaken scannen</h3>'));
+  overviewSection.appendChild(el('<h3 class="section-title" style="font-size:16px;margin-top:22px;">Zum Abhaken scannen</h3>'));
   const scanWrap = el('<div></div>');
   scanWrap.appendChild(buildScanner((number) => handleEventScan(ev.id, number)));
-  app.appendChild(scanWrap);
+  overviewSection.appendChild(scanWrap);
+
+  // ---- Patchplan Rack (Inhalt folgt) ----
+  patchSection.appendChild(el('<div class="empty">Patchplan Rack — Inhalt kommt als Nächstes.</div>'));
 };
 
 // ---------- Start ----------
