@@ -221,7 +221,7 @@ h1,h2,h3,.headline{font-family:var(--font-head);letter-spacing:-0.01em;}
     linear-gradient(var(--accent),var(--accent)) bottom right/3px 26px no-repeat;
 }
 .scan-frame::after{
-  content:"";position:absolute;left:5%;right:5%;height:2px;top:10%;
+  content:"";position:absolute;left:5%;right:5%;height:2px;top:8%;
   background:linear-gradient(90deg, transparent, var(--accent), transparent);
   box-shadow:0 0 10px 1px var(--accent-glow);
   animation:scanline 2.4s ease-in-out infinite;
@@ -422,13 +422,14 @@ function runScanner(box, onDetect){
     }
   };
 
-  // Mehrere Constraint-Varianten durchprobieren: höhere Auflösung + Dauer-Autofokus
-  // helfen bei kleinen/nahen Codes, aber nicht jeder Browser/jedes Gerät akzeptiert
-  // alle Optionen — deshalb mit Fallback auf einfachere Varianten.
+  // Mehrere Constraint-Varianten durchprobieren. 1280x720 ist ein Kompromiss:
+  // genug Detail für kleine/nahe Codes, aber deutlich schneller pro Bild
+  // auszuwerten als 1920x1080 (das den Scanner spürbar langsamer gemacht hat,
+  // da ZXing dann mehr Pixel pro Versuch durchsuchen musste).
   async function openCameraStream(){
     const attempts = [
-      { video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 }, advanced: [{ focusMode: 'continuous' }] } },
-      { video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } },
+      { video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 }, advanced: [{ focusMode: 'continuous' }] } },
+      { video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } },
       { video: { facingMode: 'environment' } },
     ];
     let lastErr;
