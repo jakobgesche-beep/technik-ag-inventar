@@ -27,7 +27,6 @@ CREATE TABLE IF NOT EXISTS items (
   status TEXT NOT NULL DEFAULT 'reserviert' CHECK (status IN ('reserviert','aktiv','defekt','ausgemustert')),
   bereich TEXT CHECK (bereich IN ('licht','ton','allgemein')),
   notes TEXT,
-  rack_id INTEGER REFERENCES racks(id) ON DELETE SET NULL,
   container_item_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -54,7 +53,8 @@ CREATE TABLE IF NOT EXISTS devices (
   active_passive TEXT CHECK (active_passive IN ('aktiv','passiv')),
   brand TEXT,
   model TEXT,
-  details TEXT
+  details TEXT,
+  rack_id INTEGER REFERENCES racks(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -76,3 +76,5 @@ CREATE TABLE IF NOT EXISTS event_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_event_items_event ON event_items(event_id);
+CREATE INDEX IF NOT EXISTS idx_event_items_item ON event_items(item_id);
+CREATE INDEX IF NOT EXISTS idx_devices_rack ON devices(rack_id);

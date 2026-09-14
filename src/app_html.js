@@ -658,7 +658,7 @@ async function renderItemDetail(item){
     const c = item.cable || {};
     const defaultBereich = item.bereich || info.cat.defaultBereich;
     form.appendChild(fieldChips('Bereich', 'bereich', defaultBereich, ['licht','ton','allgemein'], cfg.bereichLabels));
-    const cableTypeField = fieldSelectWithOther('Kabeltyp', 'cable_type', c.cable_type, ['XLR-Kabel','Klinke-Kabel','Speakon-Kabel','Cinch-Kabel','Verlängerung','Sonstiges']);
+    const cableTypeField = fieldSelect('Kabeltyp', 'cable_type', c.cable_type, ['XLR-Kabel','Klinke-Kabel','Speakon-Kabel','Cinch-Kabel','Verlängerung','Sonstiges']);
     form.appendChild(cableTypeField);
     const row = el('<div class="row2"></div>');
     const connAField = fieldSelect('Stecker A', 'connector_a', c.connector_a, info.cat.connectors);
@@ -819,9 +819,6 @@ function fieldSelect(label, name, value, options){
   const opts = options.map(o => '<option value="' + esc(o) + '"' + (o===value?' selected':'') + '>' + esc(o) + '</option>').join('');
   return el('<div class="field"><label>' + label + '</label><select name="' + name + '"><option value="">–</option>' + opts + '</select></div>');
 }
-function fieldSelectWithOther(label, name, value, options){
-  return fieldSelect(label, name, value, options);
-}
 
 // Kabeltyp → naheliegende Stecker A/B (z. B. "XLR-Kabel" → XLR male/female).
 // Findet passende Einträge in der Steckerliste der jeweiligen Kategorie über
@@ -916,7 +913,7 @@ views.neu = async function(){
     const card = el('<div class="card"></div>');
     card.appendChild(el('<p class="hint" style="margin-bottom:12px;">Details gleich hier angeben (gelten für alle reservierten Nummern dieser Runde) — dann steht z. B. die Länge direkt in der kopierbaren Beschreibung.</p>'));
     card.appendChild(fieldChips('Bereich', 'bereich', cat.defaultBereich, ['licht','ton','allgemein'], cfg.bereichLabels));
-    const cableTypeField = fieldSelectWithOther('Kabeltyp', 'cable_type', null, ['XLR-Kabel','Klinke-Kabel','Speakon-Kabel','Cinch-Kabel','Verlängerung','Sonstiges']);
+    const cableTypeField = fieldSelect('Kabeltyp', 'cable_type', null, ['XLR-Kabel','Klinke-Kabel','Speakon-Kabel','Cinch-Kabel','Verlängerung','Sonstiges']);
     card.appendChild(cableTypeField);
     const row = el('<div class="row2"></div>');
     const connAField = fieldSelect('Stecker A', 'connector_a', null, cat.connectors);
