@@ -27,8 +27,11 @@ export async function reserveNumbers(db, prefix, count, itemType) {
 }
 
 export async function getItemByNumber(db, number) {
-  const item = await db.prepare(`SELECT * FROM items WHERE number = ?`).bind(number).first();
+  const item = await db.prepare(`SELECT * FROM items WHERE number = ? AND deleted_at IS NULL`).bind(number).first();
   if (!item) return null;
+  const now = new Date().toISOString();
+  await db.prepare(`UPDATE items SET last_scanned_at = ? WHERE id = ?`).bind(now, item.id).run();
+  item.last_scanned_at = now;
   const [result] = await attachDetailsBatch(db, [item]);
   return result;
 }
@@ -115,9 +118,10 @@ async function attachDetailsBatch(db, items) {
   });
 }
 
-export async function listItems(db, { status, item_type, prefix, bereich, container, q, limit = 200 } = {}) {
+export async function listItems(db, { status, item_type, prefix, bereich, container, q, deleted, limit = 200 } = {}) {
   let sql = `SELECT items.* FROM items WHERE 1=1`;
   const binds = [];
+  sql += deleted ? ` AND deleted_at IS NOT NULL` : ` AND deleted_at IS NULL`;
   if (status) { sql += ` AND status = ?`; binds.push(status); }
   if (item_type) { sql += ` AND item_type = ?`; binds.push(item_type); }
   if (prefix) { sql += ` AND prefix = ?`; binds.push(prefix); }
@@ -134,7 +138,7 @@ export async function listItems(db, { status, item_type, prefix, bereich, contai
 }
 
 export async function saveItemDetails(db, number, payload) {
-  const item = await db.prepare(`SELECT * FROM items WHERE number = ?`).bind(number).first();
+  const item = await db.prepare(`SELECT * FROM items WHERE number = ? AND deleted_at IS NULL`).bind(number).first();
   if (!item) throw new Error("Nummer nicht gefunden. Bitte zuerst eine Nummer reservieren/drucken.");
 
   const info = prefixInfo(item.prefix);
@@ -187,17 +191,28 @@ export async function saveItemDetails(db, number, payload) {
 }
 
 export async function setItemStatus(db, number, status) {
-  await db.prepare(`UPDATE items SET status = ?, updated_at = ? WHERE number = ?`).bind(status, new Date().toISOString(), number).run();
+  await db.prepare(`UPDATE items SET status = ?, updated_at = ? WHERE number = ? AND deleted_at IS NULL`).bind(status, new Date().toISOString(), number).run();
   return getItemByNumber(db, number);
 }
 
+// Soft-Delete: Item bleibt in der Datenbank (Papierkorb), verschwindet aber aus
+// normalen Listen/Lookups. So lässt sich ein Versehen rückgängig machen.
 export async function deleteItem(db, number) {
+  await db.prepare(`UPDATE items SET deleted_at = ?, updated_at = ? WHERE number = ?`).bind(new Date().toISOString(), new Date().toISOString(), number).run();
+}
+
+export async function restoreItem(db, number) {
+  await db.prepare(`UPDATE items SET deleted_at = NULL, updated_at = ? WHERE number = ?`).bind(new Date().toISOString(), number).run();
+  return getItemByNumber(db, number);
+}
+
+export async function permanentlyDeleteItem(db, number) {
   await db.prepare(`DELETE FROM items WHERE number = ?`).bind(number).run();
 }
 
 // ---------- Kisten / Container ----------
 export async function setItemContainer(db, number, containerNumber) {
-  const item = await db.prepare(`SELECT * FROM items WHERE number = ?`).bind(number).first();
+  const item = await db.prepare(`SELECT * FROM items WHERE number = ? AND deleted_at IS NULL`).bind(number).first();
   if (!item) throw new Error("Nummer nicht gefunden.");
 
   if (!containerNumber) {
@@ -207,7 +222,7 @@ export async function setItemContainer(db, number, containerNumber) {
 
   if (containerNumber === number) throw new Error("Ein Item kann sich nicht selbst enthalten.");
 
-  const container = await db.prepare(`SELECT * FROM items WHERE number = ?`).bind(containerNumber).first();
+  const container = await db.prepare(`SELECT * FROM items WHERE number = ? AND deleted_at IS NULL`).bind(containerNumber).first();
   if (!container) throw new Error("Kiste (" + containerNumber + ") nicht gefunden.");
   const containerInfo = prefixInfo(container.prefix);
   if (!containerInfo || containerInfo.kind !== "geraet" || containerInfo.key !== "kiste") {
@@ -301,7 +316,7 @@ export async function getEvent(db, id) {
 }
 
 async function itemIdByNumber(db, number) {
-  const row = await db.prepare(`SELECT id, container_item_id FROM items WHERE number = ?`).bind(number).first();
+  const row = await db.prepare(`SELECT id, container_item_id FROM items WHERE number = ? AND deleted_at IS NULL`).bind(number).first();
   if (!row) throw new Error("Nummer nicht gefunden: " + number);
   return row;
 }
@@ -333,7 +348,7 @@ export async function setEventItemPacked(db, eventId, number, packed) {
 
 // Kiste + kompletten aktuellen Inhalt fürs Event abhaken (fügt fehlende automatisch zur Packliste hinzu).
 export async function packContainerForEvent(db, eventId, containerNumber) {
-  const container = await db.prepare(`SELECT * FROM items WHERE number = ?`).bind(containerNumber).first();
+  const container = await db.prepare(`SELECT * FROM items WHERE number = ? AND deleted_at IS NULL`).bind(containerNumber).first();
   if (!container) throw new Error("Nummer nicht gefunden: " + containerNumber);
   const containerInfo = prefixInfo(container.prefix);
   if (!containerInfo || containerInfo.kind !== "geraet" || containerInfo.key !== "kiste") {

@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS items (
   bereich TEXT CHECK (bereich IN ('licht','ton','allgemein')),
   notes TEXT,
   container_item_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
+  last_scanned_at TEXT,
+  deleted_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -37,6 +39,7 @@ CREATE INDEX IF NOT EXISTS idx_items_container ON items(container_item_id);
 CREATE INDEX IF NOT EXISTS idx_items_prefix ON items(prefix);
 CREATE INDEX IF NOT EXISTS idx_items_status ON items(status);
 CREATE INDEX IF NOT EXISTS idx_items_type ON items(item_type);
+CREATE INDEX IF NOT EXISTS idx_items_deleted ON items(deleted_at);
 
 CREATE TABLE IF NOT EXISTS cables (
   item_id INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
