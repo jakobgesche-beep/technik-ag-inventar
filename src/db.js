@@ -1,75 +1,118 @@
-import { CABLE_CATEGORIES, DEVICE_TYPES, prefixInfo, defaultBereichFor } from "./config.js";
+import { prefixInfo, defaultBereichFor } from "./config.js";
 
-// Reserviert die nächste freie Nummer für ein Präfix (atomar via RETURNING)
-// und legt direkt einen Item-Datensatz mit Status 'reserviert' an.
+// Reserviert count Nummern für ein Präfix in genau zwei Queries (statt 2*count):
+// einmal den Zähler per RETURNING um count erhöhen, dann alle Items in einem
+// Multi-Row-INSERT anlegen.
 export async function reserveNumbers(db, prefix, count, itemType) {
+  const row = await db
+    .prepare(`UPDATE counters SET next_value = next_value + ? WHERE prefix = ? RETURNING next_value - ? AS start`)
+    .bind(count, prefix, count)
+    .first();
+  if (!row) throw new Error(`Unbekanntes Präfix: ${prefix}`);
+
   const numbers = [];
+  const placeholders = [];
+  const binds = [];
   for (let i = 0; i < count; i++) {
-    const row = await db
-      .prepare(`UPDATE counters SET next_value = next_value + 1 WHERE prefix = ? RETURNING next_value - 1 AS n`)
-      .bind(prefix)
-      .first();
-    if (!row) throw new Error(`Unbekanntes Präfix: ${prefix}`);
-    const num = `${prefix}-${String(row.n).padStart(3, "0")}`;
-    await db
-      .prepare(`INSERT INTO items (number, prefix, item_type, status) VALUES (?, ?, ?, 'reserviert')`)
-      .bind(num, prefix, itemType)
-      .run();
+    const num = `${prefix}-${String(row.start + i).padStart(3, "0")}`;
     numbers.push(num);
+    placeholders.push(`(?, ?, ?, 'reserviert')`);
+    binds.push(num, prefix, itemType);
   }
+  await db
+    .prepare(`INSERT INTO items (number, prefix, item_type, status) VALUES ${placeholders.join(",")}`)
+    .bind(...binds)
+    .run();
   return numbers;
 }
 
 export async function getItemByNumber(db, number) {
   const item = await db.prepare(`SELECT * FROM items WHERE number = ?`).bind(number).first();
   if (!item) return null;
-  return attachDetails(db, item);
-}
-
-async function attachDetails(db, item) {
-  let result;
-  if (item.item_type === "kabel") {
-    const cable = await db.prepare(`SELECT * FROM cables WHERE item_id = ?`).bind(item.id).first();
-    result = { ...item, cable: cable || null, device: null };
-  } else {
-    const device = await db.prepare(`SELECT * FROM devices WHERE item_id = ?`).bind(item.id).first();
-    let rack = null;
-    if (device && device.rack_id) {
-      rack = await db.prepare(`SELECT * FROM racks WHERE id = ?`).bind(device.rack_id).first();
-    }
-    result = { ...item, cable: null, device: device ? { ...device, rack } : null };
-  }
-
-  if (item.container_item_id) {
-    const container = await db.prepare(`SELECT number FROM items WHERE id = ?`).bind(item.container_item_id).first();
-    result.container = container ? container.number : null;
-  } else {
-    result.container = null;
-  }
-
-  // Prefix statt devices-Tabelle prüfen: eine gerade erst reservierte Kiste hat
-  // noch keine Zeile in "devices" (die entsteht erst beim ersten Speichern),
-  // soll aber trotzdem sofort als Kiste funktionieren (Inhalt hinzufügen etc.).
-  const kindInfo = prefixInfo(item.prefix);
-  if (kindInfo && kindInfo.kind === "geraet" && kindInfo.key === "kiste") {
-    const { results } = await db
-      .prepare(`SELECT * FROM items WHERE container_item_id = ? ORDER BY number`)
-      .bind(item.id)
-      .all();
-    result.contents = await Promise.all(results.map((r) => attachDetailsShallow(db, r)));
-  }
-
+  const [result] = await attachDetailsBatch(db, [item]);
   return result;
 }
 
-// Wie attachDetails, aber ohne rekursiv wieder Kisteninhalt zu laden (verhindert Verschachtelung).
-async function attachDetailsShallow(db, item) {
-  if (item.item_type === "kabel") {
-    const cable = await db.prepare(`SELECT * FROM cables WHERE item_id = ?`).bind(item.id).first();
-    return { ...item, cable: cable || null, device: null };
+// Hängt Kabel-/Geräte-/Rack-/Kisteninhalt-Details an eine Liste von Item-Zeilen
+// an — in einer festen, kleinen Anzahl Batch-Queries statt einer pro Item.
+// Wird von jedem Endpunkt genutzt, der Items zurückgibt (Einzel-Lookup, Liste,
+// Event-Packliste), damit es nur eine Stelle mit dieser Logik gibt.
+async function attachDetailsBatch(db, items) {
+  if (!items.length) return [];
+  const ids = items.map((i) => i.id);
+  const ph = ids.map(() => "?").join(",");
+
+  const [{ results: cables }, { results: devices }] = await Promise.all([
+    db.prepare(`SELECT * FROM cables WHERE item_id IN (${ph})`).bind(...ids).all(),
+    db.prepare(`SELECT * FROM devices WHERE item_id IN (${ph})`).bind(...ids).all(),
+  ]);
+  const cableByItemId = new Map(cables.map((c) => [c.item_id, c]));
+  const deviceByItemId = new Map(devices.map((d) => [d.item_id, d]));
+
+  const rackIds = [...new Set(devices.map((d) => d.rack_id).filter(Boolean))];
+  let rackById = new Map();
+  if (rackIds.length) {
+    const rph = rackIds.map(() => "?").join(",");
+    const { results: racks } = await db.prepare(`SELECT * FROM racks WHERE id IN (${rph})`).bind(...rackIds).all();
+    rackById = new Map(racks.map((r) => [r.id, r]));
   }
-  const device = await db.prepare(`SELECT * FROM devices WHERE item_id = ?`).bind(item.id).first();
-  return { ...item, cable: null, device: device || null };
+
+  const containerIds = [...new Set(items.map((i) => i.container_item_id).filter(Boolean))];
+  let containerNumberById = new Map();
+  if (containerIds.length) {
+    const cph = containerIds.map(() => "?").join(",");
+    const { results: containers } = await db.prepare(`SELECT id, number FROM items WHERE id IN (${cph})`).bind(...containerIds).all();
+    containerNumberById = new Map(containers.map((c) => [c.id, c.number]));
+  }
+
+  // Kisten-Inhalt bewusst nur eine Ebene tief (keine Rekursion) — verschachtelte
+  // Kisten sind kein unterstützter Anwendungsfall, und so bleibt die Anzahl der
+  // Queries für den ganzen Batch konstant statt von der Verschachtelungstiefe
+  // abzuhängen.
+  const kisteIds = new Set(
+    items.filter((i) => { const info = prefixInfo(i.prefix); return info && info.kind === "geraet" && info.key === "kiste"; }).map((i) => i.id)
+  );
+  const contentsByContainerId = new Map();
+  if (kisteIds.size) {
+    const kph = [...kisteIds].map(() => "?").join(",");
+    const { results: contentItems } = await db
+      .prepare(`SELECT * FROM items WHERE container_item_id IN (${kph}) ORDER BY number`)
+      .bind(...kisteIds)
+      .all();
+    if (contentItems.length) {
+      const cIds = contentItems.map((c) => c.id);
+      const cph2 = cIds.map(() => "?").join(",");
+      const [{ results: cCables }, { results: cDevices }] = await Promise.all([
+        db.prepare(`SELECT * FROM cables WHERE item_id IN (${cph2})`).bind(...cIds).all(),
+        db.prepare(`SELECT * FROM devices WHERE item_id IN (${cph2})`).bind(...cIds).all(),
+      ]);
+      const cCableByItemId = new Map(cCables.map((c) => [c.item_id, c]));
+      const cDeviceByItemId = new Map(cDevices.map((d) => [d.item_id, d]));
+      for (const ci of contentItems) {
+        const detail = ci.item_type === "kabel"
+          ? { ...ci, cable: cCableByItemId.get(ci.id) || null, device: null }
+          : { ...ci, cable: null, device: cDeviceByItemId.get(ci.id) || null };
+        if (!contentsByContainerId.has(ci.container_item_id)) contentsByContainerId.set(ci.container_item_id, []);
+        contentsByContainerId.get(ci.container_item_id).push(detail);
+      }
+    }
+  }
+
+  return items.map((item) => {
+    let result;
+    if (item.item_type === "kabel") {
+      result = { ...item, cable: cableByItemId.get(item.id) || null, device: null };
+    } else {
+      const device = deviceByItemId.get(item.id) || null;
+      const rack = device && device.rack_id ? (rackById.get(device.rack_id) || null) : null;
+      result = { ...item, cable: null, device: device ? { ...device, rack } : null };
+    }
+    result.container = item.container_item_id ? (containerNumberById.get(item.container_item_id) || null) : null;
+    if (kisteIds.has(item.id)) {
+      result.contents = contentsByContainerId.get(item.id) || [];
+    }
+    return result;
+  });
 }
 
 export async function listItems(db, { status, item_type, prefix, bereich, container, q, limit = 200 } = {}) {
@@ -87,8 +130,7 @@ export async function listItems(db, { status, item_type, prefix, bereich, contai
   sql += ` ORDER BY created_at DESC LIMIT ?`;
   binds.push(limit);
   const { results } = await db.prepare(sql).bind(...binds).all();
-  const withDetails = await Promise.all(results.map((r) => attachDetails(db, r)));
-  return withDetails;
+  return attachDetailsBatch(db, results);
 }
 
 export async function saveItemDetails(db, number, payload) {
@@ -99,11 +141,15 @@ export async function saveItemDetails(db, number, payload) {
   if (!info) throw new Error("Unbekanntes Präfix.");
 
   const bereich = payload.bereich || defaultBereichFor(info.kind, info.key) || null;
+  // Nur beim allerersten Speichern (aus "reserviert" heraus) automatisch auf
+  // aktiv setzen — ein späteres Bearbeiten (z.B. Notiz korrigieren) an einem als
+  // defekt/ausgemustert markierten Item soll dessen Status nicht überschreiben.
+  const newStatus = item.status === "reserviert" ? "aktiv" : item.status;
 
   const now = new Date().toISOString();
   await db
-    .prepare(`UPDATE items SET notes = ?, bereich = ?, status = 'aktiv', updated_at = ? WHERE id = ?`)
-    .bind(payload.notes || null, bereich, now, item.id)
+    .prepare(`UPDATE items SET notes = ?, bereich = ?, status = ?, updated_at = ? WHERE id = ?`)
+    .bind(payload.notes || null, bereich, newStatus, now, item.id)
     .run();
 
   if (item.item_type === "kabel") {
@@ -196,7 +242,15 @@ export async function deleteRack(db, id) {
 // ---------- Events ----------
 export async function listEvents(db) {
   const { results } = await db.prepare(`SELECT * FROM events ORDER BY event_date ASC`).all();
-  return Promise.all(results.map((ev) => attachEventProgress(db, ev)));
+  if (!results.length) return [];
+  const ids = results.map((e) => e.id);
+  const ph = ids.map(() => "?").join(",");
+  const { results: rows } = await db
+    .prepare(`SELECT event_id, COUNT(*) AS total, SUM(packed) AS packed FROM event_items WHERE event_id IN (${ph}) GROUP BY event_id`)
+    .bind(...ids)
+    .all();
+  const progressById = new Map(rows.map((r) => [r.event_id, { total: r.total, packed: r.packed || 0 }]));
+  return results.map((ev) => ({ ...ev, progress: progressById.get(ev.id) || { total: 0, packed: 0 } }));
 }
 
 async function attachEventProgress(db, ev) {
@@ -238,13 +292,10 @@ export async function getEvent(db, id) {
     )
     .bind(id)
     .all();
-  const packlist = await Promise.all(
-    results.map(async (r) => {
-      const { packed, packed_at, ...itemRow } = r;
-      const details = await attachDetails(db, itemRow);
-      return { ...details, packed: !!packed, packed_at };
-    })
-  );
+  const packedById = new Map(results.map((r) => [r.id, { packed: !!r.packed, packed_at: r.packed_at }]));
+  const itemRows = results.map(({ packed, packed_at, ...itemRow }) => itemRow);
+  const details = await attachDetailsBatch(db, itemRows);
+  const packlist = details.map((d) => ({ ...d, ...packedById.get(d.id) }));
   const progress = { total: packlist.length, packed: packlist.filter((p) => p.packed).length };
   return { ...ev, packlist, progress };
 }
@@ -292,12 +343,14 @@ export async function packContainerForEvent(db, eventId, containerNumber) {
   const { results: contents } = await db.prepare(`SELECT id FROM items WHERE container_item_id = ?`).bind(container.id).all();
   const ids = [container.id, ...contents.map((c) => c.id)];
   const now = new Date().toISOString();
-  for (const id of ids) {
-    await db
-      .prepare(`INSERT INTO event_items (event_id, item_id, packed, packed_at) VALUES (?, ?, 1, ?)
-        ON CONFLICT(event_id, item_id) DO UPDATE SET packed = 1, packed_at = excluded.packed_at`)
-      .bind(eventId, id, now)
-      .run();
-  }
+  const placeholders = ids.map(() => `(?, ?, 1, ?)`).join(",");
+  const binds = ids.flatMap((id) => [eventId, id, now]);
+  await db
+    .prepare(
+      `INSERT INTO event_items (event_id, item_id, packed, packed_at) VALUES ${placeholders}
+       ON CONFLICT(event_id, item_id) DO UPDATE SET packed = 1, packed_at = excluded.packed_at`
+    )
+    .bind(...binds)
+    .run();
   return getEvent(db, eventId);
 }
