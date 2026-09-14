@@ -22,6 +22,8 @@ import {
   removeEventItem,
   setEventItemPacked,
   packContainerForEvent,
+  getEventPatch,
+  setEventPatchChannel,
 } from "./db.js";
 
 const MANIFEST = {
@@ -214,6 +216,21 @@ export default {
         const body = await request.json();
         if (!body.number) return err("Nummer ist erforderlich.");
         return json(await packContainerForEvent(db, id, String(body.number).toUpperCase()));
+      }
+
+      const patchMatch = pathname.match(/^\/api\/events\/(\d+)\/patch$/);
+      if (patchMatch) {
+        const id = parseInt(patchMatch[1], 10);
+        if (request.method === "GET") {
+          return json(await getEventPatch(db, id));
+        }
+        if (request.method === "PATCH") {
+          const body = await request.json();
+          if (!["in", "out"].includes(body.io) || !Number.isInteger(body.channel)) {
+            return err("Ungültiger Kanal.");
+          }
+          return json(await setEventPatchChannel(db, id, body.io, body.channel, body.label));
+        }
       }
 
       return err("Not found", 404);

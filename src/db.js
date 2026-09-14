@@ -354,3 +354,26 @@ export async function packContainerForEvent(db, eventId, containerNumber) {
     .run();
   return getEvent(db, eventId);
 }
+
+// ---------- Patchplan (Behringer S16 Stagebox: 16 In / 8 Out) ----------
+export const PATCH_INPUTS = 16;
+export const PATCH_OUTPUTS = 8;
+
+export async function getEventPatch(db, eventId) {
+  const { results } = await db.prepare(`SELECT io, channel, label FROM event_patch WHERE event_id = ?`).bind(eventId).all();
+  const byKey = new Map(results.map((r) => [r.io + r.channel, r.label]));
+  const ins = Array.from({ length: PATCH_INPUTS }, (_, i) => ({ channel: i + 1, label: byKey.get("in" + (i + 1)) || "" }));
+  const outs = Array.from({ length: PATCH_OUTPUTS }, (_, i) => ({ channel: i + 1, label: byKey.get("out" + (i + 1)) || "" }));
+  return { ins, outs };
+}
+
+export async function setEventPatchChannel(db, eventId, io, channel, label) {
+  await db
+    .prepare(
+      `INSERT INTO event_patch (event_id, io, channel, label) VALUES (?, ?, ?, ?)
+       ON CONFLICT(event_id, io, channel) DO UPDATE SET label = excluded.label`
+    )
+    .bind(eventId, io, channel, label || null)
+    .run();
+  return getEventPatch(db, eventId);
+}

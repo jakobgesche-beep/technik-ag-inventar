@@ -76,5 +76,17 @@ CREATE TABLE IF NOT EXISTS event_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_event_items_event ON event_items(event_id);
+
+-- Patchplan der Behringer S16-Stagebox, pro Event: welches Gerät/Instrument
+-- hängt an welchem Ein-/Ausgang. Eigenständige Tabelle, wird nur von den
+-- /api/events/:id/patch-Endpunkten genutzt — falls sie mal fehlt, ist nur
+-- der Patchplan-Tab betroffen, nicht der Rest der App.
+CREATE TABLE IF NOT EXISTS event_patch (
+  event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  io TEXT NOT NULL CHECK (io IN ('in','out')),
+  channel INTEGER NOT NULL,
+  label TEXT,
+  PRIMARY KEY (event_id, io, channel)
+);
 CREATE INDEX IF NOT EXISTS idx_event_items_item ON event_items(item_id);
 CREATE INDEX IF NOT EXISTS idx_devices_rack ON devices(rack_id);

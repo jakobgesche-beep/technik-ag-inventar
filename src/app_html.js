@@ -297,6 +297,33 @@ h1,h2,h3,.headline{font-family:var(--font-head);letter-spacing:-0.01em;}
 .progress-fill{height:100%;background:linear-gradient(90deg, var(--accent-2), var(--accent));}
 .event-card{cursor:pointer;}
 .badge-row{display:flex;align-items:center;gap:8px;margin:-4px 0 14px;flex-wrap:wrap;}
+
+.patch-brand{
+  text-align:center;font-family:var(--font-head);letter-spacing:0.18em;text-transform:uppercase;
+  font-size:11.5px;color:var(--muted);border:1px solid var(--line);border-radius:var(--radius-s);
+  padding:9px;margin-bottom:16px;background:var(--panel-2);
+}
+.patch-section-label{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:10px;}
+.patch-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 8px;margin-bottom:18px;}
+.patch-channel{display:flex;flex-direction:column;align-items:center;gap:6px;}
+.patch-jack{
+  width:32px;height:32px;border-radius:50%;flex:none;
+  background:radial-gradient(circle at 35% 30%, #3c3f45, #17181b 72%);
+  border:2px solid var(--line);position:relative;
+}
+.patch-jack::before{
+  content:"";position:absolute;inset:0;
+  background:
+    radial-gradient(circle 2px at 50% 32%, var(--accent-dim) 99%, transparent 100%),
+    radial-gradient(circle 2px at 33% 64%, var(--accent-dim) 99%, transparent 100%),
+    radial-gradient(circle 2px at 67% 64%, var(--accent-dim) 99%, transparent 100%);
+}
+.patch-num{font-family:var(--font-mono);font-size:10px;color:var(--muted);font-weight:600;letter-spacing:0.02em;}
+.patch-input{
+  width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:6px;padding:6px 3px;font-size:11px;text-align:center;
+}
+.patch-input:focus{outline:none;border-color:var(--accent-dim);box-shadow:0 0 0 2px var(--accent-glow);}
 `;
 
 const JS = `
@@ -1296,8 +1323,55 @@ views['event-detail'] = async function(params){
   overviewSection.appendChild(scanWrap);
 
   // ---- Patchplan Rack (Inhalt folgt) ----
-  patchSection.appendChild(el('<div class="empty">Patchplan Rack — Inhalt kommt als Nächstes.</div>'));
+  renderPatchplan(patchSection, ev.id);
 };
+
+// ================= PATCHPLAN (Behringer S16 Stagebox) =================
+async function renderPatchplan(container, eventId){
+  container.innerHTML = '<div class="empty">Lädt …</div>';
+  let data;
+  try { data = await api('/events/' + eventId + '/patch'); }
+  catch(e){
+    container.innerHTML = '';
+    container.appendChild(el('<div class="empty">Patchplan ist noch nicht eingerichtet.<br/>(' + esc(e.message) + ')</div>'));
+    return;
+  }
+
+  container.innerHTML = '';
+  const panel = el('<div class="card"></div>');
+  panel.appendChild(el('<div class="patch-brand">Stagebox · Behringer S16</div>'));
+
+  panel.appendChild(el('<div class="patch-section-label">Inputs (Mikrofone/Instrumente)</div>'));
+  const inGrid = el('<div class="patch-grid"></div>');
+  data.ins.forEach(ch => inGrid.appendChild(patchChannelField('in', ch, eventId)));
+  panel.appendChild(inGrid);
+
+  panel.appendChild(el('<div class="patch-section-label">Outputs (Monitore/IEM/…)</div>'));
+  const outGrid = el('<div class="patch-grid"></div>');
+  data.outs.forEach(ch => outGrid.appendChild(patchChannelField('out', ch, eventId)));
+  panel.appendChild(outGrid);
+
+  container.appendChild(panel);
+  container.appendChild(el('<p class="hint">Tippen, Gerät/Instrument eintragen, Feld verlassen zum Speichern.</p>'));
+}
+
+function patchChannelField(io, ch, eventId){
+  const cell = el('<div class="patch-channel"><div class="patch-jack"></div><div class="patch-num">' + (io === 'in' ? 'IN' : 'OUT') + ' ' + ch.channel + '</div></div>');
+  const input = el('<input type="text" class="patch-input" placeholder="—">');
+  input.value = ch.label || '';
+  cell.appendChild(input);
+  let lastSaved = input.value;
+  input.addEventListener('change', async () => {
+    const val = input.value.trim();
+    if(val === lastSaved) return;
+    try {
+      await api('/events/' + eventId + '/patch', { method:'PATCH', body: JSON.stringify({ io, channel: ch.channel, label: val }) });
+      lastSaved = val;
+      toast((io === 'in' ? 'IN ' : 'OUT ') + ch.channel + ' gespeichert.');
+    } catch(e){ toast(e.message, true); input.value = lastSaved; }
+  });
+  return cell;
+}
 
 // ---------- Start ----------
 if('serviceWorker' in navigator){
