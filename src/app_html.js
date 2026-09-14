@@ -635,8 +635,7 @@ async function renderItemDetail(item){
   header.appendChild(el('<div class="number-label">' + item.number + '</div>'));
   header.appendChild(el('<span class="status-pill ' + item.status + '">' + statusLabel(item.status) + '</span>'));
   app.appendChild(header);
-  const catLine = (info.kind === 'kabel' ? info.cat.label : info.type.label) + (item.last_scanned_at ? ' · zuletzt gescannt: ' + formatDateTime(item.last_scanned_at) : '');
-  app.appendChild(el('<p class="hint">' + catLine + '</p>'));
+  app.appendChild(el('<p class="hint">' + (info.kind === 'kabel' ? info.cat.label : info.type.label) + '</p>'));
 
   if(item.container){
     const cbadge = el('<div class="badge-row"><span class="status-pill">in Kiste ' + esc(item.container) + '</span></div>');
@@ -794,10 +793,10 @@ async function changeStatus(number, status){
 }
 
 async function deleteItemConfirm(number){
-  if(!confirm(number + ' in den Papierkorb verschieben? (Kann in der Liste → Papierkorb wiederhergestellt werden)')) return;
+  if(!confirm(number + ' wirklich endgültig löschen?')) return;
   try {
     await api('/items/' + encodeURIComponent(number), { method:'DELETE' });
-    toast(number + ' in den Papierkorb verschoben');
+    toast(number + ' gelöscht');
     goTo('liste');
   } catch(e){ toast(e.message, true); }
 }
@@ -992,58 +991,9 @@ function renderCodeList(container, numbers, prefix, cfg, details){
 }
 
 // ================= LISTE =================
-// ================= CSV-EXPORT =================
-function itemsToCsv(items){
-  const headers = ['Nummer','Typ','Kategorie','Bereich','Status','Kabeltyp','Stecker A','Stecker B','Laenge_m','Marke','Modell','Aktiv_Passiv','Details','Kiste','Notizen','Erstellt'];
-  const escCsv = (v) => {
-    const s = String(v ?? '');
-    return /[",;\\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
-  };
-  const rows = items.map(item => [
-    item.number,
-    item.item_type,
-    item.item_type === 'kabel' ? (item.cable && item.cable.category) || '' : (item.device && item.device.device_type) || '',
-    item.bereich || '',
-    item.status,
-    item.cable ? (item.cable.cable_type || '') : '',
-    item.cable ? (item.cable.connector_a || '') : '',
-    item.cable ? (item.cable.connector_b || '') : '',
-    item.cable && item.cable.length_m != null ? item.cable.length_m : '',
-    item.device ? (item.device.brand || '') : '',
-    item.device ? (item.device.model || '') : '',
-    item.device ? (item.device.active_passive || '') : '',
-    item.device ? (item.device.details || '') : '',
-    item.container || '',
-    item.notes || '',
-    item.created_at || '',
-  ]);
-  return [headers, ...rows].map(r => r.map(escCsv).join(';')).join('\\r\\n');
-}
-
-function downloadCsv(filename, csvContent){
-  const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 views.liste = async function(){
   app.innerHTML = '';
   app.appendChild(el('<h2 class="section-title">Inventar</h2>'));
-
-  let showTrash = false;
-
-  const topRow = el('<div class="btn-row" style="margin-bottom:14px;"></div>');
-  const trashBtn = el('<button class="btn ghost">Papierkorb</button>');
-  const exportBtn = el('<button class="btn secondary">CSV exportieren</button>');
-  topRow.appendChild(trashBtn);
-  topRow.appendChild(exportBtn);
-  app.appendChild(topRow);
 
   const filters = el('<div class="filters"></div>');
   const statusSel = el('<select id="f-status"><option value="">Alle Status</option><option value="reserviert">reserviert</option><option value="aktiv">aktiv</option><option value="defekt">defekt</option><option value="ausgemustert">ausgemustert</option></select>');
@@ -1056,65 +1006,26 @@ views.liste = async function(){
   const listWrap = el('<div class="card" style="padding:4px 12px;"></div>');
   app.appendChild(listWrap);
 
-  function currentParams(){
+  async function refresh(){
     const params = new URLSearchParams();
-    if(showTrash){ params.set('deleted', 'true'); return params; }
     if(statusSel.value) params.set('status', statusSel.value);
     if(typeSel.value) params.set('item_type', typeSel.value);
     if(bereichSel.value) params.set('bereich', bereichSel.value);
     if(searchInp.value) params.set('q', searchInp.value);
-    return params;
-  }
-
-  async function refresh(){
-    filters.style.display = showTrash ? 'none' : 'flex';
-    trashBtn.textContent = showTrash ? '← Zurück zur Liste' : 'Papierkorb';
-    exportBtn.style.display = showTrash ? 'none' : '';
-    const items = await api('/items?' + currentParams().toString());
+    const items = await api('/items?' + params.toString());
     listWrap.innerHTML = '';
-    if(!items.length){ listWrap.appendChild(el('<div class="empty">' + (showTrash ? 'Papierkorb ist leer.' : 'Keine Einträge gefunden.') + '</div>')); return; }
+    if(!items.length){ listWrap.appendChild(el('<div class="empty">Keine Einträge gefunden.</div>')); return; }
     items.forEach(item => {
       const meta = item.item_type === 'kabel'
         ? [item.cable && item.cable.cable_type, item.cable && (item.cable.connector_a || '') + (item.cable.connector_b ? ' → ' + item.cable.connector_b : ''), item.cable && item.cable.length_m ? item.cable.length_m + ' m' : null].filter(Boolean).join(' · ')
         : [item.device && item.device.brand, item.device && item.device.model, item.device && item.device.active_passive].filter(Boolean).join(' · ');
       const extra = item.container ? ('in ' + item.container) : null;
       const metaFull = [meta || null, extra].filter(Boolean).join(' · ') || '–';
-      const row = el('<div class="item-row"><span class="status-dot ' + item.status + '"></span><div class="grow"><div class="num">' + item.number + '</div><div class="meta">' + metaFull + '</div></div></div>');
-      if(showTrash){
-        const restoreBtn = el('<button class="btn secondary" style="width:auto;padding:8px 12px;">Wiederherstellen</button>');
-        restoreBtn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          try { await api('/items/' + encodeURIComponent(item.number) + '/restore', { method:'POST' }); toast(item.number + ' wiederhergestellt'); refresh(); }
-          catch(err){ toast(err.message, true); }
-        });
-        const permDelBtn = el('<button class="btn danger" style="width:auto;padding:8px 12px;margin-left:6px;">Endgültig</button>');
-        permDelBtn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          if(!confirm(item.number + ' endgültig löschen? Das kann NICHT rückgängig gemacht werden.')) return;
-          try { await api('/items/' + encodeURIComponent(item.number) + '?permanent=true', { method:'DELETE' }); toast(item.number + ' endgültig gelöscht'); refresh(); }
-          catch(err){ toast(err.message, true); }
-        });
-        row.appendChild(restoreBtn);
-        row.appendChild(permDelBtn);
-      } else {
-        row.appendChild(el('<span class="status-pill ' + item.status + '">' + item.status + '</span>'));
-        row.addEventListener('click', () => lookupNumber(item.number));
-      }
+      const row = el('<div class="item-row"><span class="status-dot ' + item.status + '"></span><div class="grow"><div class="num">' + item.number + '</div><div class="meta">' + metaFull + '</div></div><span class="status-pill ' + item.status + '">' + item.status + '</span></div>');
+      row.addEventListener('click', () => lookupNumber(item.number));
       listWrap.appendChild(row);
     });
   }
-
-  trashBtn.addEventListener('click', () => { showTrash = !showTrash; refresh(); });
-  exportBtn.addEventListener('click', async () => {
-    try {
-      const params = currentParams();
-      params.set('limit', '5000');
-      const items = await api('/items?' + params.toString());
-      downloadCsv('inventar_' + new Date().toISOString().slice(0, 10) + '.csv', itemsToCsv(items));
-      toast(items.length + ' Einträge exportiert.');
-    } catch(e){ toast(e.message, true); }
-  });
-
   statusSel.addEventListener('change', refresh);
   typeSel.addEventListener('change', refresh);
   bereichSel.addEventListener('change', refresh);
@@ -1127,8 +1038,8 @@ function debounce(fn, ms){ let t; return (...a) => { clearTimeout(t); t = setTim
 // ================= RACKS =================
 views.racks = async function(){
   app.innerHTML = '';
-  app.appendChild(el('<h2 class="section-title">Racks / Standorte</h2>'));
-  app.appendChild(el('<p class="hint">Racks anlegen, um Geräten (Pulte, Boxen, Mikrofone, Kisten, …) einen Standort/Case zuzuordnen.</p>'));
+  app.appendChild(el('<h2 class="section-title">Racks (Funkmikros)</h2>'));
+  app.appendChild(el('<p class="hint">Racks anlegen, um Funkmikrofone einem Standort/Case zuzuordnen.</p>'));
 
   const addCard = el('<div class="card"></div>');
   addCard.appendChild(fieldText('Name', 'name', ''));
@@ -1171,13 +1082,6 @@ function formatDate(iso){
   } catch(e){ return iso; }
 }
 
-function formatDateTime(iso){
-  try {
-    const d = new Date(iso);
-    return d.toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'numeric' }) + ' ' + d.toLocaleTimeString('de-DE', { hour:'2-digit', minute:'2-digit' });
-  } catch(e){ return iso; }
-}
-
 views.events = async function(){
   app.innerHTML = '';
   app.appendChild(el('<h2 class="section-title">Events</h2>'));
@@ -1194,78 +1098,14 @@ views.events = async function(){
   addCard.appendChild(addBtn);
   app.appendChild(addCard);
 
-  const calWrap = el('<div class="card"></div>');
-  app.appendChild(calWrap);
   const listWrap = el('<div style="margin-top:6px;"></div>');
   app.appendChild(listWrap);
 
-  let allEvents = [];
-  const today = new Date();
-  let calMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-  let selectedDate = null;
-
-  function renderCalendar(){
-    calWrap.innerHTML = '';
-    const year = calMonth.getFullYear();
-    const month = calMonth.getMonth();
-    const header = el('<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;"></div>');
-    const prevBtn = el('<button type="button" class="btn ghost" style="width:auto;padding:6px 12px;">‹</button>');
-    const nextBtn = el('<button type="button" class="btn ghost" style="width:auto;padding:6px 12px;">›</button>');
-    const label = el('<div class="headline" style="font-size:15px;">' + calMonth.toLocaleDateString('de-DE', { month:'long', year:'numeric' }) + '</div>');
-    header.appendChild(prevBtn); header.appendChild(label); header.appendChild(nextBtn);
-    calWrap.appendChild(header);
-
-    const eventsByDate = new Map();
-    allEvents.forEach(ev => {
-      if(!eventsByDate.has(ev.event_date)) eventsByDate.set(ev.event_date, []);
-      eventsByDate.get(ev.event_date).push(ev);
-    });
-
-    const grid = el('<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;"></div>');
-    ['Mo','Di','Mi','Do','Fr','Sa','So'].forEach(d => grid.appendChild(el('<div style="text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;padding-bottom:6px;">' + d + '</div>')));
-
-    const firstOfMonth = new Date(year, month, 1);
-    const startOffset = (firstOfMonth.getDay() + 6) % 7;
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const todayStr = today.toISOString().slice(0, 10);
-
-    for(let i = 0; i < startOffset; i++) grid.appendChild(el('<div></div>'));
-    for(let day = 1; day <= daysInMonth; day++){
-      const dateStr = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
-      const dayEvents = eventsByDate.get(dateStr);
-      const isToday = dateStr === todayStr;
-      const isSelected = dateStr === selectedDate;
-      let style = 'aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:8px;font-size:12.5px;gap:2px;';
-      if(isSelected) style += 'background:rgba(232,161,60,0.18);';
-      if(isToday) style += 'box-shadow:inset 0 0 0 1px var(--accent-dim);';
-      style += dayEvents ? 'cursor:pointer;color:var(--accent);font-weight:600;' : 'color:var(--text-dim);';
-      const cell = el('<div style="' + style + '">' + day + (dayEvents ? '<span style="width:4px;height:4px;border-radius:50%;background:var(--accent);"></span>' : '') + '</div>');
-      if(dayEvents){
-        cell.addEventListener('click', () => {
-          selectedDate = isSelected ? null : dateStr;
-          renderCalendar();
-          renderList();
-        });
-      }
-      grid.appendChild(cell);
-    }
-    calWrap.appendChild(grid);
-
-    prevBtn.addEventListener('click', () => { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1); renderCalendar(); });
-    nextBtn.addEventListener('click', () => { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 1); renderCalendar(); });
-
-    if(selectedDate){
-      const clearBtn = el('<button type="button" class="btn ghost" style="margin-top:10px;">Filter aufheben (' + formatDate(selectedDate) + ')</button>');
-      clearBtn.addEventListener('click', () => { selectedDate = null; renderCalendar(); renderList(); });
-      calWrap.appendChild(clearBtn);
-    }
-  }
-
-  function renderList(){
+  async function refresh(){
+    const events = await api('/events');
     listWrap.innerHTML = '';
-    const shown = selectedDate ? allEvents.filter(ev => ev.event_date === selectedDate) : allEvents;
-    if(!shown.length){ listWrap.appendChild(el('<div class="empty">' + (selectedDate ? 'Keine Events an diesem Tag.' : 'Noch keine Events angelegt.') + '</div>')); return; }
-    shown.forEach(ev => {
+    if(!events.length){ listWrap.appendChild(el('<div class="empty">Noch keine Events angelegt.</div>')); return; }
+    events.forEach(ev => {
       const pct = ev.progress.total ? Math.round(100 * ev.progress.packed / ev.progress.total) : 0;
       const card = el('<div class="card event-card"></div>');
       card.appendChild(el('<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;"><div class="headline" style="font-size:16px;">' + esc(ev.name) + '</div><div class="meta" style="color:var(--muted);font-size:12.5px;white-space:nowrap;">' + formatDate(ev.event_date) + '</div></div>'));
@@ -1275,12 +1115,6 @@ views.events = async function(){
       card.addEventListener('click', () => goTo('event-detail', { id: ev.id }));
       listWrap.appendChild(card);
     });
-  }
-
-  async function refresh(){
-    allEvents = await api('/events');
-    renderCalendar();
-    renderList();
   }
 
   addBtn.addEventListener('click', async () => {

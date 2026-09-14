@@ -9,8 +9,6 @@ import {
   saveItemDetails,
   setItemStatus,
   deleteItem,
-  restoreItem,
-  permanentlyDeleteItem,
   setItemContainer,
   listRacks,
   createRack,
@@ -102,9 +100,7 @@ export default {
         const bereich = url.searchParams.get("bereich") || undefined;
         const container = url.searchParams.get("container") || undefined;
         const q = url.searchParams.get("q") || undefined;
-        const deleted = url.searchParams.get("deleted") === "true";
-        const limit = url.searchParams.get("limit") ? Math.min(parseInt(url.searchParams.get("limit"), 10) || 200, 5000) : undefined;
-        const items = await listItems(db, { status, item_type, bereich, container, q, deleted, ...(limit ? { limit } : {}) });
+        const items = await listItems(db, { status, item_type, bereich, container, q });
         return json(items);
       }
 
@@ -116,34 +112,24 @@ export default {
         return json(item);
       }
 
-      const itemMatch = pathname.match(/^\/api\/items\/([^/]+)(\/status|\/restore)?$/);
+      const itemMatch = pathname.match(/^\/api\/items\/([^/]+)(\/status)?$/);
       if (itemMatch) {
         const number = decodeURIComponent(itemMatch[1]).toUpperCase();
-        const suffix = itemMatch[2];
-        const isStatus = suffix === "/status";
+        const isStatus = !!itemMatch[2];
 
-        if (!suffix && request.method === "GET") {
+        if (!isStatus && request.method === "GET") {
           const item = await getItemByNumber(db, number);
           if (!item) return err("Nummer nicht gefunden.", 404);
           return json(item);
         }
-        if (!suffix && request.method === "PATCH") {
+        if (!isStatus && request.method === "PATCH") {
           const body = await request.json();
           const item = await saveItemDetails(db, number, body);
           return json(item);
         }
-        if (!suffix && request.method === "DELETE") {
-          if (url.searchParams.get("permanent") === "true") {
-            await permanentlyDeleteItem(db, number);
-          } else {
-            await deleteItem(db, number);
-          }
+        if (!isStatus && request.method === "DELETE") {
+          await deleteItem(db, number);
           return json({ ok: true });
-        }
-        if (suffix === "/restore" && request.method === "POST") {
-          const item = await restoreItem(db, number);
-          if (!item) return err("Nummer nicht gefunden.", 404);
-          return json(item);
         }
         if (isStatus && request.method === "PATCH") {
           const body = await request.json();

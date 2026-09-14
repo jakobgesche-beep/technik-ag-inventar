@@ -11,14 +11,14 @@ export const CABLE_CATEGORIES = {
 // Bereich pro Gerätetyp: "fixed" -> immer dieser Wert (nur Anzeige als Tag),
 // "choice" -> Nutzer wählt aus den angegebenen Optionen, "none" -> kein Bereich (z.B. Kiste).
 export const DEVICE_TYPES = {
-  pult:             { prefix: "PLT", label: "Pult",               hasActivePassive: false, hasRack: true, bereich: { mode: "choice", options: ["licht", "ton"] } },
-  lampe:            { prefix: "LMP", label: "Lampe",               hasActivePassive: false, hasRack: true, bereich: { mode: "fixed", value: "licht" } },
-  box:              { prefix: "BOX", label: "Box (Lautsprecher)",  hasActivePassive: true,  hasRack: true, bereich: { mode: "fixed", value: "ton" } },
-  mikrofon:         { prefix: "MIK", label: "Mikrofon",             hasActivePassive: false, hasRack: true, bereich: { mode: "fixed", value: "ton" } },
-  mikrofonstaender: { prefix: "MST", label: "Mikroständer",         hasActivePassive: false, hasRack: true, bereich: { mode: "fixed", value: "ton" } },
+  pult:             { prefix: "PLT", label: "Pult",               hasActivePassive: false, hasRack: false, bereich: { mode: "choice", options: ["licht", "ton"] } },
+  lampe:            { prefix: "LMP", label: "Lampe",               hasActivePassive: false, hasRack: false, bereich: { mode: "fixed", value: "licht" } },
+  box:              { prefix: "BOX", label: "Box (Lautsprecher)",  hasActivePassive: true,  hasRack: false, bereich: { mode: "fixed", value: "ton" } },
+  mikrofon:         { prefix: "MIK", label: "Mikrofon",             hasActivePassive: false, hasRack: false, bereich: { mode: "fixed", value: "ton" } },
+  mikrofonstaender: { prefix: "MST", label: "Mikroständer",         hasActivePassive: false, hasRack: false, bereich: { mode: "fixed", value: "ton" } },
   funkmikro:        { prefix: "FNK", label: "Funkmikrofon",         hasActivePassive: false, hasRack: true,  bereich: { mode: "fixed", value: "ton" } },
-  kiste:            { prefix: "KIS", label: "Kiste",                hasActivePassive: false, hasRack: true, bereich: { mode: "none" }, isContainer: true },
-  sonstiges:        { prefix: "GER", label: "Sonstiges Gerät",      hasActivePassive: false, hasRack: true, bereich: { mode: "choice", options: ["licht", "ton", "allgemein"] } },
+  kiste:            { prefix: "KIS", label: "Kiste",                hasActivePassive: false, hasRack: false, bereich: { mode: "none" }, isContainer: true },
+  sonstiges:        { prefix: "GER", label: "Sonstiges Gerät",      hasActivePassive: false, hasRack: false, bereich: { mode: "choice", options: ["licht", "ton", "allgemein"] } },
 };
 
 export const BEREICH_LABELS = { licht: "Licht", ton: "Ton", allgemein: "Allgemein" };
