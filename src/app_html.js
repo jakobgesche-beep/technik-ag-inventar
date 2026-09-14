@@ -298,32 +298,53 @@ h1,h2,h3,.headline{font-family:var(--font-head);letter-spacing:-0.01em;}
 .event-card{cursor:pointer;}
 .badge-row{display:flex;align-items:center;gap:8px;margin:-4px 0 14px;flex-wrap:wrap;}
 
-.patch-brand{
-  text-align:center;font-family:var(--font-head);letter-spacing:0.18em;text-transform:uppercase;
-  font-size:11.5px;color:var(--muted);border:1px solid var(--line);border-radius:var(--radius-s);
-  padding:9px;margin-bottom:16px;background:var(--panel-2);
+.patch-rack{
+  background:#111214;border:1px solid var(--line);border-radius:var(--radius-m);
+  padding:16px 14px;box-shadow:0 1px 0 rgba(255,255,255,0.03) inset, 0 10px 24px -18px rgba(0,0,0,0.7);
 }
-.patch-section-label{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:10px;}
-.patch-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 8px;margin-bottom:18px;}
-.patch-channel{display:flex;flex-direction:column;align-items:center;gap:6px;}
+.patch-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.patch-inner{min-width:600px;}
+.patch-row{display:flex;gap:10px;margin-bottom:14px;}
+.patch-row:last-child{margin-bottom:0;}
+.patch-channel{display:flex;flex-direction:column;align-items:center;gap:6px;flex:none;width:64px;}
+.patch-label-tag{
+  font-family:var(--font-mono);font-size:9.5px;font-weight:700;letter-spacing:0.02em;
+  color:var(--text-dim);background:var(--panel-2);border:1px solid var(--line);
+  border-radius:20px;padding:3px 8px;white-space:nowrap;
+}
 .patch-jack{
-  width:32px;height:32px;border-radius:50%;flex:none;
+  width:44px;height:44px;border-radius:50%;flex:none;position:relative;
   background:radial-gradient(circle at 35% 30%, #3c3f45, #17181b 72%);
-  border:2px solid var(--line);position:relative;
+  border:2px solid var(--line);
+  transition:box-shadow .15s ease, border-color .15s ease;
 }
 .patch-jack::before{
   content:"";position:absolute;inset:0;
   background:
-    radial-gradient(circle 2px at 50% 32%, var(--accent-dim) 99%, transparent 100%),
-    radial-gradient(circle 2px at 33% 64%, var(--accent-dim) 99%, transparent 100%),
-    radial-gradient(circle 2px at 67% 64%, var(--accent-dim) 99%, transparent 100%);
+    radial-gradient(circle 2.5px at 50% 30%, #6b6f76 99%, transparent 100%),
+    radial-gradient(circle 2.5px at 32% 64%, #6b6f76 99%, transparent 100%),
+    radial-gradient(circle 2.5px at 68% 64%, #6b6f76 99%, transparent 100%);
 }
-.patch-num{font-family:var(--font-mono);font-size:10px;color:var(--muted);font-weight:600;letter-spacing:0.02em;}
+.patch-jack.plugged{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);}
+.patch-jack.plugged::after{
+  content:"";position:absolute;left:50%;top:-12px;transform:translateX(-50%);
+  width:13px;height:15px;border-radius:3px 3px 0 0;
+  background:linear-gradient(180deg,#3a3d43,#202226);border:1px solid var(--accent-dim);border-bottom:none;
+}
 .patch-input{
   width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
-  border-radius:6px;padding:6px 3px;font-size:11px;text-align:center;
+  border-radius:6px;padding:5px 3px;font-size:10.5px;text-align:center;
 }
 .patch-input:focus{outline:none;border-color:var(--accent-dim);box-shadow:0 0 0 2px var(--accent-glow);}
+.patch-midplate{
+  display:flex;align-items:center;justify-content:center;gap:16px;flex:none;
+  background:linear-gradient(180deg,var(--panel-raised),var(--panel));border:1px solid var(--line);
+  border-radius:var(--radius-s);padding:10px 18px;margin:2px 0 14px;min-width:600px;
+}
+.patch-midplate .brand{font-family:var(--font-head);font-size:13px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-dim);}
+.patch-midplate .led{width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 5px 1px rgba(90,185,124,0.5);}
+.patch-midplate .led.amber{background:var(--accent);box-shadow:0 0 5px 1px var(--accent-glow);}
+.patch-hint-scroll{font-size:11px;color:var(--muted);text-align:center;margin-top:10px;}
 `;
 
 const JS = `
@@ -1338,27 +1359,38 @@ async function renderPatchplan(container, eventId){
   }
 
   container.innerHTML = '';
-  const panel = el('<div class="card"></div>');
-  panel.appendChild(el('<div class="patch-brand">Stagebox · Behringer S16</div>'));
+  const rack = el('<div class="patch-rack"></div>');
+  const scroll = el('<div class="patch-scroll"></div>');
+  const inner = el('<div class="patch-inner"></div>');
 
-  panel.appendChild(el('<div class="patch-section-label">Inputs (Mikrofone/Instrumente)</div>'));
-  const inGrid = el('<div class="patch-grid"></div>');
-  data.ins.forEach(ch => inGrid.appendChild(patchChannelField('in', ch, eventId)));
-  panel.appendChild(inGrid);
+  const inRow1 = el('<div class="patch-row"></div>');
+  const inRow2 = el('<div class="patch-row"></div>');
+  data.ins.forEach((ch, idx) => (idx < 8 ? inRow1 : inRow2).appendChild(patchChannelField('in', ch, eventId)));
+  inner.appendChild(inRow1);
+  inner.appendChild(inRow2);
 
-  panel.appendChild(el('<div class="patch-section-label">Outputs (Monitore/IEM/…)</div>'));
-  const outGrid = el('<div class="patch-grid"></div>');
-  data.outs.forEach(ch => outGrid.appendChild(patchChannelField('out', ch, eventId)));
-  panel.appendChild(outGrid);
+  const midplate = el('<div class="patch-midplate"><span class="led amber"></span><span class="brand">Stagebox · S16</span><span class="led"></span></div>');
+  inner.appendChild(midplate);
 
-  container.appendChild(panel);
-  container.appendChild(el('<p class="hint">Tippen, Gerät/Instrument eintragen, Feld verlassen zum Speichern.</p>'));
+  const outRow = el('<div class="patch-row"></div>');
+  data.outs.forEach(ch => outRow.appendChild(patchChannelField('out', ch, eventId)));
+  inner.appendChild(outRow);
+
+  scroll.appendChild(inner);
+  rack.appendChild(scroll);
+  container.appendChild(rack);
+  container.appendChild(el('<p class="patch-hint-scroll">Bei Bedarf seitlich wischen · Tippen zum Bearbeiten, Feld verlassen zum Speichern</p>'));
 }
 
 function patchChannelField(io, ch, eventId){
-  const cell = el('<div class="patch-channel"><div class="patch-jack"></div><div class="patch-num">' + (io === 'in' ? 'IN' : 'OUT') + ' ' + ch.channel + '</div></div>');
+  const cell = el('<div class="patch-channel"></div>');
+  const tag = el('<div class="patch-label-tag">' + (io === 'in' ? 'IN' : 'OUT') + ' ' + ch.channel + '</div>');
+  const jack = el('<div class="patch-jack"></div>');
+  if(ch.label) jack.classList.add('plugged');
   const input = el('<input type="text" class="patch-input" placeholder="—">');
   input.value = ch.label || '';
+  cell.appendChild(tag);
+  cell.appendChild(jack);
   cell.appendChild(input);
   let lastSaved = input.value;
   input.addEventListener('change', async () => {
@@ -1367,6 +1399,7 @@ function patchChannelField(io, ch, eventId){
     try {
       await api('/events/' + eventId + '/patch', { method:'PATCH', body: JSON.stringify({ io, channel: ch.channel, label: val }) });
       lastSaved = val;
+      jack.classList.toggle('plugged', !!val);
       toast((io === 'in' ? 'IN ' : 'OUT ') + ch.channel + ' gespeichert.');
     } catch(e){ toast(e.message, true); input.value = lastSaved; }
   });
