@@ -19,6 +19,7 @@ import {
   updateEvent,
   deleteEvent,
   addEventItem,
+  addEventItemsByCategory,
   removeEventItem,
   setEventItemPacked,
   packContainerForEvent,
@@ -195,6 +196,17 @@ export default {
         const body = await request.json();
         if (!body.number) return err("Nummer ist erforderlich.");
         return json(await addEventItem(db, id, String(body.number).toUpperCase()));
+      }
+
+      // Packliste per Kategorie + Anzahl füllen, statt Nummern von Hand einzutragen
+      // (z.B. "2x Funkmikrofon") — die App sucht sich passende, freie Items selbst.
+      const eventItemsByCatMatch = pathname.match(/^\/api\/events\/(\d+)\/items\/by-category$/);
+      if (eventItemsByCatMatch && request.method === "POST") {
+        const id = parseInt(eventItemsByCatMatch[1], 10);
+        const body = await request.json();
+        if (!body.prefix || !prefixInfo(body.prefix)) return err("Unbekannte Kategorie.");
+        const count = Math.min(Math.max(parseInt(body.count, 10) || 1, 1), 20);
+        return json(await addEventItemsByCategory(db, id, body.prefix, count));
       }
 
       const eventItemMatch = pathname.match(/^\/api\/events\/(\d+)\/items\/([^/]+)$/);

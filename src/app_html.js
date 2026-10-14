@@ -13,6 +13,8 @@ export function getAppHtml() {
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.23.0/umd/index.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
 <style>
 ${CSS}
 </style>
@@ -1294,9 +1296,45 @@ views['event-detail'] = async function(params){
 
   overviewSection.appendChild(el('<h3 class="section-title" style="font-size:16px;margin-top:22px;">Packliste (' + ev.progress.packed + '/' + ev.progress.total + ')</h3>'));
 
-  const addRow = el('<div class="btn-row" style="margin-bottom:14px;"></div>');
-  const addInput = el('<input type="text" placeholder="Nummer, z. B. KIS-001" autocapitalize="characters" style="flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:11px 12px;font-size:15px;">');
-  const addPBtn = el('<button class="btn" style="width:auto;">+</button>');
+  // ---- Nach Kategorie hinzufügen (der normale Weg: "2x Funkmikro" statt Nummern von
+  // Hand nachzuschlagen) — sucht sich passende, freie Exemplare selbst aus dem Bestand. ----
+  overviewSection.appendChild(el('<p class="hint" style="margin-bottom:10px;">Kategorie wählen, Anzahl eintragen — die App sucht sich passende, freie Exemplare aus eurem Bestand selbst heraus.</p>'));
+  const catCard = el('<div class="card"></div>');
+  const catWrap = el('<div class="chip-group" style="margin-bottom:14px;"></div>');
+  let catPrefix = null;
+  Object.values(cfg.cableCategories).concat(Object.values(cfg.deviceTypes)).forEach((v, idx) => {
+    const chip = el('<button type="button" class="chip">' + esc(v.label) + '</button>');
+    chip.addEventListener('click', () => {
+      [...catWrap.children].forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      catPrefix = v.prefix;
+    });
+    catWrap.appendChild(chip);
+    if(idx === 0){ chip.classList.add('active'); catPrefix = v.prefix; }
+  });
+  catCard.appendChild(catWrap);
+  const catRow = el('<div class="btn-row"></div>');
+  const catCount = el('<input type="number" min="1" max="20" value="1" style="width:68px;flex:none;background:var(--panel-2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:11px 8px;font-size:15px;text-align:center;">');
+  const catBtn = el('<button class="btn" style="flex:1;">Hinzufügen</button>');
+  catRow.appendChild(catCount); catRow.appendChild(catBtn);
+  catCard.appendChild(catRow);
+  overviewSection.appendChild(catCard);
+  catBtn.addEventListener('click', async () => {
+    const count = Math.min(Math.max(parseInt(catCount.value, 10) || 1, 1), 20);
+    try {
+      const res = await api('/events/' + ev.id + '/items/by-category', { method:'POST', body: JSON.stringify({ prefix: catPrefix, count }) });
+      let msg = res.added.length ? (res.added.length + '× ' + esc(res.label) + ' hinzugefügt: ' + res.added.join(', ')) : ('Keine freien ' + esc(res.label) + ' im Bestand gefunden.');
+      if(res.shortfall > 0) msg += '<br>Nur ' + res.added.length + ' von ' + count + ' verfügbar — Rest fehlt im Bestand.';
+      if(res.busy.length) msg += '<br>Achtung, am selben Tag auch eingeplant: ' + res.busy.map(b => b.number + ' (' + esc(b.conflicts) + ')').join(', ');
+      toast(msg, res.added.length < count);
+      goTo('event-detail', { id: ev.id });
+    } catch(e){ toast(e.message, true); }
+  });
+
+  // ---- Oder: genaue Nummer eintragen/scannen, falls ein ganz bestimmtes Exemplar sein muss ----
+  const addRow = el('<div class="btn-row" style="margin:14px 0;"></div>');
+  const addInput = el('<input type="text" placeholder="Oder genaue Nummer, z. B. KIS-001" autocapitalize="characters" style="flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:11px 12px;font-size:15px;">');
+  const addPBtn = el('<button class="btn secondary" style="width:auto;">+</button>');
   addRow.appendChild(addInput); addRow.appendChild(addPBtn);
   overviewSection.appendChild(addRow);
   addPBtn.addEventListener('click', async () => {
@@ -1344,11 +1382,12 @@ views['event-detail'] = async function(params){
   overviewSection.appendChild(scanWrap);
 
   // ---- Patchplan Rack (Inhalt folgt) ----
-  renderPatchplan(patchSection, ev.id);
+  renderPatchplan(patchSection, ev);
 };
 
 // ================= PATCHPLAN (Behringer S16 Stagebox) =================
-async function renderPatchplan(container, eventId){
+async function renderPatchplan(container, ev){
+  const eventId = ev.id;
   container.innerHTML = '<div class="empty">Lädt …</div>';
   let data;
   try { data = await api('/events/' + eventId + '/patch'); }
@@ -1359,6 +1398,10 @@ async function renderPatchplan(container, eventId){
   }
 
   container.innerHTML = '';
+  const dlBtn = el('<button class="btn secondary" style="width:auto;margin-bottom:14px;">Patchplan als PDF herunterladen</button>');
+  dlBtn.addEventListener('click', () => downloadPatchplanPdf(ev, data));
+  container.appendChild(dlBtn);
+
   const rack = el('<div class="patch-rack"></div>');
   const scroll = el('<div class="patch-scroll"></div>');
   const inner = el('<div class="patch-inner"></div>');
@@ -1399,11 +1442,42 @@ function patchChannelField(io, ch, eventId){
     try {
       await api('/events/' + eventId + '/patch', { method:'PATCH', body: JSON.stringify({ io, channel: ch.channel, label: val }) });
       lastSaved = val;
+      ch.label = val; // hält das Daten-Objekt aktuell, das die PDF-Export-Funktion nutzt
       jack.classList.toggle('plugged', !!val);
       toast((io === 'in' ? 'IN ' : 'OUT ') + ch.channel + ' gespeichert.');
     } catch(e){ toast(e.message, true); input.value = lastSaved; }
   });
   return cell;
+}
+
+// Patchplan als PDF: zwei Tabellen (IN/OUT) nebeneinander, zum Ausdrucken/Weiterleiten.
+function buildPatchplanPdf(ev, data){
+  if(typeof window.jspdf === 'undefined' || typeof window.jspdf.jsPDF === 'undefined'){
+    toast('PDF-Bibliothek konnte nicht geladen werden (offline?).', true);
+    return null;
+  }
+  const doc = new window.jspdf.jsPDF({ unit:'mm', format:'a4' });
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.text('Patchplan - Stagebox S16', 14, 18);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+  doc.text(ev.name + (ev.location ? '  -  ' + ev.location : '') + '  -  ' + formatDate(ev.event_date), 14, 26);
+  doc.setFontSize(9);
+  doc.setTextColor(130);
+  doc.text('Erstellt am ' + new Date().toLocaleDateString('de-DE') + ' mit Technik-AG Inventar', 14, 31);
+  doc.setTextColor(20);
+
+  const tableOpts = { startY: 38, theme: 'grid', styles: { fontSize: 10, cellPadding: 2.4 }, headStyles: { fillColor: [26, 27, 30] }, columnStyles: { 0: { cellWidth: 14, halign: 'center' } } };
+  doc.autoTable(Object.assign({}, tableOpts, { head: [['IN', 'Bezeichnung']], body: data.ins.map(c => [String(c.channel), c.label || '-']), margin: { left: 14, right: 110 } }));
+  doc.autoTable(Object.assign({}, tableOpts, { head: [['OUT', 'Bezeichnung']], body: data.outs.map(c => [String(c.channel), c.label || '-']), margin: { left: 110, right: 14 } }));
+  return doc;
+}
+function downloadPatchplanPdf(ev, data){
+  const doc = buildPatchplanPdf(ev, data);
+  if(!doc) return;
+  const safeName = (ev.name || 'Event').replace(/[^\\w\\-]+/g, '_');
+  doc.save('Patchplan_' + safeName + '_' + ev.event_date + '.pdf');
 }
 
 // ---------- Start ----------

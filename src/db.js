@@ -315,6 +315,48 @@ export async function addEventItem(db, eventId, number) {
   return getEvent(db, eventId);
 }
 
+// Packliste nach Kategorie statt Nummer füllen: "ich brauche 2 Funkmikros" statt jede
+// Nummer von Hand zu wissen/abzutippen. Sucht sich die ersten `count` freien (status
+// 'aktiv', nicht schon in dieser Packliste, nicht gerade Inhalt einer Kiste) Items mit
+// diesem Präfix — bevorzugt Exemplare, die am selben Tag noch für kein anderes Event
+// eingeplant sind; reicht der freie Bestand nicht, werden auch schon anderweitig
+// verplante genommen (als "busy" markiert, damit die Oberfläche warnen kann).
+export async function addEventItemsByCategory(db, eventId, prefix, count) {
+  const info = prefixInfo(prefix);
+  if (!info) throw new Error("Unbekanntes Präfix: " + prefix);
+  const event = await db.prepare(`SELECT event_date FROM events WHERE id = ?`).bind(eventId).first();
+  if (!event) throw new Error("Event nicht gefunden.");
+
+  const { results: candidates } = await db
+    .prepare(
+      `SELECT items.id, items.number,
+         (SELECT GROUP_CONCAT(e2.name, ', ') FROM event_items ei JOIN events e2 ON e2.id = ei.event_id
+            WHERE ei.item_id = items.id AND e2.event_date = ? AND e2.id != ?) AS conflicts
+       FROM items
+       WHERE prefix = ? AND status = 'aktiv' AND container_item_id IS NULL
+         AND id NOT IN (SELECT item_id FROM event_items WHERE event_id = ?)
+       ORDER BY (
+         SELECT COUNT(*) FROM event_items ei2 JOIN events e3 ON e3.id = ei2.event_id
+           WHERE ei2.item_id = items.id AND e3.event_date = ? AND e3.id != ?
+       ) ASC, number ASC
+       LIMIT ?`
+    )
+    .bind(event.event_date, eventId, prefix, eventId, event.event_date, eventId, count)
+    .all();
+
+  if (candidates.length) {
+    const placeholders = candidates.map(() => `(?, ?)`).join(",");
+    const binds = candidates.flatMap((c) => [eventId, c.id]);
+    await db.prepare(`INSERT OR IGNORE INTO event_items (event_id, item_id) VALUES ${placeholders}`).bind(...binds).run();
+  }
+
+  const added = candidates.map((c) => c.number);
+  const busy = candidates.filter((c) => c.conflicts).map((c) => ({ number: c.number, conflicts: c.conflicts }));
+  const shortfall = count - candidates.length;
+  const ev = await getEvent(db, eventId);
+  return { ...ev, added, busy, shortfall, label: info.label };
+}
+
 export async function removeEventItem(db, eventId, number) {
   const item = await itemIdByNumber(db, number);
   await db.prepare(`DELETE FROM event_items WHERE event_id = ? AND item_id = ?`).bind(eventId, item.id).run();

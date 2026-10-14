@@ -28,9 +28,17 @@ kein Supabase, keine Accounts, kein separates Hosting nötig.
    erwarteten Inhalt zur Bestätigung — praktisch für die Bestandskontrolle
    nach einem Event.
 5. **„Events"**: Events mit Datum, Ort und Bemerkung anlegen. Packliste
-   zusammenstellen (Nummer eintragen oder direkt scannen). Beim Packen im
-   Event einfach scannen: normales Item → wird abgehakt; Kiste → kompletter
-   Inhalt wird auf einmal abgehakt (nach Bestätigung, dass alles drin ist).
+   zusammenstellen — am einfachsten **nach Kategorie**: Kategorie wählen,
+   Anzahl eintragen ("2× Funkmikrofon"), die App sucht sich selbst passende,
+   freie Exemplare aus dem Bestand heraus (defekte/ausgemusterte und Items,
+   die gerade in einer Kiste stecken, werden übersprungen; ist ein Exemplar
+   am selben Tag schon für ein anderes Event eingeplant, wird trotzdem
+   zugeteilt, aber als Konflikt gemeldet). Eine ganz bestimmte Nummer lässt
+   sich daneben weiterhin eintragen/scannen. Beim Packen im Event einfach
+   scannen: normales Item → wird abgehakt; Kiste → kompletter Inhalt wird auf
+   einmal abgehakt (nach Bestätigung, dass alles drin ist). Pro Event gibt es
+   außerdem einen **Patchplan** für die S16-Stagebox (16 Ein-/8 Ausgänge mit
+   frei beschriftbaren Kanälen), der sich als **PDF herunterladen** lässt.
 6. **„Racks"**: Racks anlegen (z. B. „Funk-Case 1"), damit Funkmikrofone einem
    Standort zugeordnet werden können.
 
