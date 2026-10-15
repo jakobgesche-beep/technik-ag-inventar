@@ -24,6 +24,8 @@ self.addEventListener('fetch', (event) => {
 
   // App-Shell: Netzwerk zuerst, damit Updates sofort ankommen (nicht erst beim
   // übernächsten Laden) — nur bei fehlendem Netz auf den Cache zurückfallen.
+  // ignoreSearch: Direkt-Links von Etiketten (/?i=NUMMER) haben eine andere Adresse als die
+  // im Cache liegende "/" — ohne das würde der Offline-Fallback bei so einem Link leer ausgehen.
   event.respondWith(
     fetch(event.request)
       .then((res) => {
@@ -33,7 +35,7 @@ self.addEventListener('fetch', (event) => {
         }
         return res;
       })
-      .catch(() => caches.match(event.request))
+      .catch(() => caches.match(event.request, { ignoreSearch: true }))
   );
 });
 `;

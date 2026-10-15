@@ -75,7 +75,18 @@ Gescannt wird per Kamera über die Bibliothek `ZXing` (erkennt QR-Codes und
 mehrere Barcode-Formate) — die App macht selbst `getUserMedia`/`<video>` auf
 (dadurch ist die Live-Vorschau garantiert sichtbar) und übergibt jedes
 Kamera-Bild an ZXing, statt die native `BarcodeDetector`-API zu nutzen (die
-unterstützt Safari auf dem iPhone nicht).
+unterstützt Safari auf dem iPhone nicht). ZXing ist dabei auf genau die zwei
+Formate eingeschränkt, die wir benutzen (QR + Code128, statt aller ~18 von
+ZXing unterstützten) — das macht die Erkennung pro Bild schneller und
+verhindert Zufallstreffer in einem für uns irrelevanten Format. Ein Treffer
+wird außerdem nur übernommen, wenn er wirklich wie eine unserer Nummern
+aussieht (`PREFIX-###` **mit einem bekannten Präfix** aus `src/config.js`,
+zweimal hintereinander gleich gelesen) — Fehllesungen durch Glanz/Unschärfe,
+die zufällig wie ein Code aussehen, führen so nicht mehr zu einer falschen
+Nummer, sondern der Scanner sucht einfach weiter. Auf Geräten, die eine
+Taschenlampe über die Kamera unterstützen, erscheint zusätzlich ein
+Licht-Knopf (auf iPhone/Safari i. d. R. nicht verfügbar — WebKit erlaubt das
+bislang nicht, der Knopf bleibt dann einfach versteckt).
 
 Zusätzlich gibt es einen **„Foto aufnehmen & Text lesen"**-Button (OCR über
 `Tesseract.js`) für den Fall, dass irgendwo nur reiner Text ohne QR/Barcode
@@ -84,6 +95,16 @@ langsamer und unsicherer —, sondern liefert nur einen Vorschlag im
 Eingabefeld zum Prüfen/Korrigieren vor dem Bestätigen. Fällt die
 Kamera-Erkennung ganz aus (kein Kamerazugriff erlaubt o. Ä.), kann die Nummer
 jederzeit manuell eingetippt werden.
+
+**Direkt-Link statt Scan (kostenlose Alternative):** Neben „Kopieren" gibt es
+bei jeder Nummer jetzt auch einen **„Link"**-Knopf, der statt der reinen
+Nummer `https://…/?i=NUMMER` kopiert. Als QR-Code aufs Etikett gedruckt,
+erkennt die **normale Kamera-App** des Handys (nicht unser Scanner im
+Browser) diesen Link meist zuverlässiger als unser In-App-Scanner einen
+reinen Text-Code — ein Antippen öffnet den Eintrag direkt, ganz ohne die App
+überhaupt erst zu öffnen. Bestehende Etiketten mit der reinen Nummer
+funktionieren unverändert weiter; eine Umstellung ist also optional und kann
+nach und nach passieren (z. B. nur bei neu gedruckten Etiketten).
 
 ## Setup
 

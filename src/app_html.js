@@ -443,7 +443,7 @@ function playBeep(){
   } catch(e){}
 }
 
-function runScanner(box, onDetect){
+function runScanner(box, onDetect, knownPrefixes, onStream){
   stopScanner();
 
   if(typeof ZXing === 'undefined' || !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)){
@@ -460,7 +460,13 @@ function runScanner(box, onDetect){
   box.appendChild(video);
   box.appendChild(el('<div class="scan-frame"></div>'));
 
-  const reader = new ZXing.BrowserMultiFormatReader();
+  // Nur auf QR + Code128 prüfen (die beiden Formate, die wir tatsächlich verwenden) statt
+  // wie im Standard auf alle ~18 von ZXing unterstützten Formate — pro Bild deutlich weniger
+  // Arbeit (schneller UND weniger Chancen auf einen zufälligen Fehltreffer in einem anderen,
+  // für uns irrelevanten Format).
+  const hints = new Map();
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.QR_CODE, ZXing.BarcodeFormat.CODE_128]);
+  const reader = new ZXing.BrowserMultiFormatReader(hints);
   let stream = null, raf = null, stopped = false, lastScan = 0;
   let lastCandidate = null, candidateCount = 0;
 
@@ -495,6 +501,7 @@ function runScanner(box, onDetect){
       if(stopped){ s.getTracks().forEach(t => t.stop()); return; }
       stream = s;
       video.srcObject = s;
+      if(onStream) onStream(s);
       return video.play();
     })
     .then(() => {
@@ -505,7 +512,10 @@ function runScanner(box, onDetect){
           lastScan = ts;
           try {
             const result = reader.decode(video);
-            const val = (result.getText() || '').trim().toUpperCase();
+            // Nur übernehmen, wenn es wirklich wie einer unserer Codes aussieht (bekanntes
+            // Präfix) — sonst war es ein Fehltreffer (Glanz/Unschärfe/fremder Code) und wir
+            // scannen einfach weiter, statt eine falsche Nummer nachzuschlagen.
+            const val = cleanOcrGuess(result.getText(), knownPrefixes);
             if(val){
               if(val === lastCandidate) candidateCount++;
               else { lastCandidate = val; candidateCount = 1; }
@@ -538,25 +548,50 @@ async function getOcrWorker(){
   return ocrWorker;
 }
 
-// Gibt einen sauberen "PREFIX-###"-Code zurück, wenn der erkannte Text eindeutig
-// danach aussieht, sonst null (dann lieber zur Korrektur ins Eingabefeld statt
-// blind auf einen vermutlich falschen Code nachzuschlagen).
-function cleanOcrGuess(raw){
+// Gibt einen sauberen "PREFIX-###"-Code zurück, wenn der erkannte Text eindeutig danach
+// aussieht, sonst null (dann lieber zur Korrektur ins Eingabefeld statt blind auf einen
+// vermutlich falschen Code nachzuschlagen). Mit knownPrefixes zusätzlich geprüft, ob das
+// Präfix überhaupt zu einer unserer Kategorien gehört — filtert Fehllesungen raus, die rein
+// vom Format her passen könnten (z. B. durch Glanz/Unschärfe verfälschte Zeichen).
+function cleanOcrGuess(raw, knownPrefixes){
   const s = (raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const m = s.match(/^([A-Z]{2,6})(\d{1,6})$/);
-  return m ? (m[1] + '-' + m[2]) : null;
+  const m = s.match(/^([A-Z]{2,6})(\\d{1,6})$/);
+  if(!m) return null;
+  if(knownPrefixes && knownPrefixes.size && !knownPrefixes.has(m[1])) return null;
+  return m[1] + '-' + m[2];
+}
+function knownPrefixSet(cfg){
+  return new Set(Object.values(cfg.cableCategories).map(c => c.prefix).concat(Object.values(cfg.deviceTypes).map(d => d.prefix)));
 }
 
-function buildScanner(onDetect){
+function buildScanner(onDetect, knownPrefixes){
   unlockAudio();
   const wrap = el('<div></div>');
   const box = el('<div class="scanbox"><div class="scan-placeholder">Kamera wird gestartet …</div></div>');
   wrap.appendChild(box);
 
-  const ocrBtn = el('<button type="button" class="btn secondary" style="margin-bottom:14px;">Foto aufnehmen &amp; Text lesen</button>');
-  wrap.appendChild(ocrBtn);
+  const btnRow = el('<div class="btn-row" style="margin-bottom:14px;"></div>');
+  const ocrBtn = el('<button type="button" class="btn secondary">Foto aufnehmen &amp; Text lesen</button>');
+  const torchBtn = el('<button type="button" class="btn secondary" style="width:auto;flex:none;" hidden>🔦 Licht an</button>');
+  btnRow.appendChild(ocrBtn); btnRow.appendChild(torchBtn);
+  wrap.appendChild(btnRow);
   const ocrStatus = el('<p class="hint" style="display:none;">Erkenne Text …</p>');
   wrap.appendChild(ocrStatus);
+  // Taschenlampe: nur zeigen, wenn die Kamera das unterstützt (iPhone/Safari i. d. R. nicht —
+  // dort bleibt der Knopf einfach versteckt, kein Fehler).
+  let torchOn = false;
+  function setupTorch(stream){
+    const track = stream.getVideoTracks()[0];
+    if(!track || !track.getCapabilities) return;
+    let caps; try { caps = track.getCapabilities(); } catch(e){ return; }
+    if(!caps || !caps.torch) return;
+    torchBtn.hidden = false;
+    torchBtn.onclick = async () => {
+      torchOn = !torchOn;
+      try { await track.applyConstraints({ advanced: [{ torch: torchOn }] }); torchBtn.textContent = torchOn ? '🔦 Licht aus' : '🔦 Licht an'; }
+      catch(e){ torchOn = !torchOn; toast('Blitzlicht nicht verfügbar.', true); }
+    };
+  }
 
   const manualWrap = el('<div class="field"><label>Nummer manuell eingeben (oder Vorschlag oben prüfen)</label><input type="text" placeholder="z. B. MIK-001" autocapitalize="characters" /></div>');
   wrap.appendChild(manualWrap);
@@ -581,7 +616,7 @@ function buildScanner(onDetect){
       canvas.getContext('2d').drawImage(video, 0, 0);
       const worker = await getOcrWorker();
       const { data } = await worker.recognize(canvas);
-      const guess = cleanOcrGuess(data.text);
+      const guess = cleanOcrGuess(data.text, knownPrefixes);
       if(guess){
         playBeep();
         toast('Erkannt: ' + guess);
@@ -601,15 +636,16 @@ function buildScanner(onDetect){
     }
   });
 
-  runScanner(box, onDetect);
+  runScanner(box, onDetect, knownPrefixes, setupTorch);
   return wrap;
 }
 
 views.scan = async function(){
+  const cfg = await loadConfig();
   app.innerHTML = '';
   app.appendChild(el('<h2 class="section-title">Scannen</h2>'));
   app.appendChild(el('<p class="hint">Kamera auf den Code auf dem Kabel/Gerät richten (Barcode/QR wird sofort erkannt). Bei reinem Text-Label: „Foto aufnehmen" tippen, Vorschlag prüfen. Sonst Nummer unten eintippen.</p>'));
-  app.appendChild(buildScanner(lookupNumber));
+  app.appendChild(buildScanner(lookupNumber, knownPrefixSet(cfg)));
 };
 
 // ================= LABELS =================
@@ -618,7 +654,12 @@ views.scan = async function(){
 // das eigentliche Label (inkl. eines eventuellen QR-Codes) druckt. Gescannt
 // wird trotzdem per Kamera: die Bibliothek ZXing erkennt, was auch immer auf
 // dem physisch aufgeklebten Label landet (QR-Code, Barcode, …).
-function copyRow(text){
+// linkFor (optional, nur bei Nummern sinnvoll): zeigt einen zweiten Knopf, der statt der
+// reinen Nummer einen Link kopiert (…/?i=NUMMER). Als QR-Code aufs Etikett gedruckt, erkennt
+// die normale Kamera-App des Handys so einen Link oft zuverlässiger als unser Scanner im
+// Browser einen reinen Text-Code — und öffnet den Eintrag direkt, ganz ohne eigenes Scannen
+// in der App. Bestehende Etiketten mit der reinen Nummer funktionieren weiterhin wie gewohnt.
+function copyRow(text, linkFor){
   const row = el('<div class="copy-row"><span class="copy-text"></span><button type="button" class="btn ghost" style="width:auto;padding:6px 12px;font-size:12.5px;">Kopieren</button></div>');
   row.querySelector('.copy-text').textContent = text;
   const btn = row.querySelector('button');
@@ -628,6 +669,17 @@ function copyRow(text){
       toast('Kopiert: ' + text);
     } catch(e){ toast('Kopieren nicht möglich.', true); }
   });
+  if(linkFor){
+    const linkBtn = el('<button type="button" class="btn ghost" style="width:auto;padding:6px 12px;font-size:12.5px;" title="Link zum direkten Öffnen kopieren (gut für QR-Codes, erkennt die normale Kamera-App)">Link</button>');
+    linkBtn.addEventListener('click', async () => {
+      const url = location.origin + '/?i=' + encodeURIComponent(linkFor);
+      try {
+        await navigator.clipboard.writeText(url);
+        toast('Link kopiert — als QR aufs Etikett erkennt die normale Kamera-App ihn direkt.');
+      } catch(e){ toast('Kopieren nicht möglich.', true); }
+    });
+    row.appendChild(linkBtn);
+  }
   return row;
 }
 
@@ -771,7 +823,7 @@ async function renderItemDetail(item){
 
   app.appendChild(el('<h3 class="section-title" style="font-size:16px;margin-top:22px;">Code</h3>'));
   const codeCard = el('<div class="card"></div>');
-  codeCard.appendChild(copyRow(item.number));
+  codeCard.appendChild(copyRow(item.number, item.number));
   codeCard.appendChild(copyRow(labelText(item, info)));
   app.appendChild(codeCard);
 
@@ -818,7 +870,7 @@ async function renderItemDetail(item){
           toast(num + ' hinzugefügt.');
           lookupNumber(item.number);
         } catch(e){ toast(e.message, true); }
-      }));
+      }, knownPrefixSet(cfg)));
     });
     app.appendChild(addToggle);
     app.appendChild(scanSlot);
@@ -1033,7 +1085,7 @@ function renderCodeList(container, numbers, prefix, cfg, details){
   }
 
   const listCard = el('<div class="card" style="padding:4px 12px;"></div>');
-  numbers.forEach(num => listCard.appendChild(copyRow(num)));
+  numbers.forEach(num => listCard.appendChild(copyRow(num, num)));
   container.appendChild(listCard);
 
   const goScan = el('<button class="btn ghost" style="margin-top:14px;">Zum Scanner</button>');
@@ -1378,7 +1430,7 @@ views['event-detail'] = async function(params){
 
   overviewSection.appendChild(el('<h3 class="section-title" style="font-size:16px;margin-top:22px;">Zum Abhaken scannen</h3>'));
   const scanWrap = el('<div></div>');
-  scanWrap.appendChild(buildScanner((number) => handleEventScan(ev.id, number)));
+  scanWrap.appendChild(buildScanner((number) => handleEventScan(ev.id, number), knownPrefixSet(cfg)));
   overviewSection.appendChild(scanWrap);
 
   // ---- Patchplan Rack (Inhalt folgt) ----
@@ -1488,5 +1540,18 @@ if(navigator.onLine === false){ onlineBadge.textContent = 'offline'; } else { on
 window.addEventListener('online', ()=>{ onlineBadge.textContent='bereit'; onlineBadge.classList.add('live'); });
 window.addEventListener('offline', ()=>{ onlineBadge.textContent='offline'; onlineBadge.classList.remove('live'); });
 
-goTo('scan');
+// Direkt-Link vom Etikett (QR mit …/?i=NUMMER, von der normalen Kamera-App geöffnet): die
+// passende Seite gleich zeigen statt immer beim Scanner zu starten. history.replaceState
+// räumt die Adresse danach auf, damit "Zurück" nicht wieder auf denselben Link springt.
+(function(){
+  const direct = new URLSearchParams(location.search).get('i');
+  if(direct){
+    history.replaceState(null, '', location.pathname);
+    currentView = 'scan';
+    setActiveTab('scan');
+    lookupNumber(direct.trim().toUpperCase());
+  } else {
+    goTo('scan');
+  }
+})();
 `;
